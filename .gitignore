@@ -4,6 +4,7 @@ backend.log
 *.test
 /uploads/
 /tmp/
+backend/fileshare
 
 # Node / Vite
 node_modules/
