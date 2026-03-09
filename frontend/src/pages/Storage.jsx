@@ -382,6 +382,13 @@ function FAB({ onUploadFiles, onUploadFolder, onNewFolder, tr }) {
   const fileRef = useRef()
   const folderRef = useRef()
 
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open])
+
   return (
     <>
       {open && (
@@ -454,7 +461,7 @@ export default function Storage() {
   const [renameTarget, setRenameTarget]     = useState(null)
   const [uploadingFiles, setUploadingFiles] = useState([])
   const [dragOver, setDragOver]   = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [previewFile, setPreviewFile] = useState(null)
 

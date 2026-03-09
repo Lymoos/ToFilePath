@@ -1994,7 +1994,13 @@ a:hover { color: var(--green-bright); }
 }
 @media (max-width: 700px) {
   .storage-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 150; }
-  .storage-sidebar.closed { transform: translateX(-100%); width: 280px !important; }
+  .storage-sidebar.closed {
+    transform: translateX(-100%);
+    width: 280px !important;
+    pointer-events: none;
+    visibility: hidden;
+  }
+  .storage-sidebar.open { pointer-events: auto; visibility: visible; }
   .storage-header-actions .btn-sm .btn-label { display: none; }
 }
 @media (max-width: 480px) {
@@ -3531,7 +3537,10 @@ input:-webkit-autofill:active {
   .storage-sidebar.closed {
     transform: translateX(-100%);
     width: 280px !important;
+    pointer-events: none;
+    visibility: hidden;
   }
+  .storage-sidebar.open { pointer-events: auto; visibility: visible; }
   .sidebar-drag-handle { display: none; }
   .storage-fab { display: flex; }
 
