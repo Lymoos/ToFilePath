@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLang } from '../context/LanguageContext'
+import { usePendingUpload } from '../context/UploadContext'
 import FilePreview, { canPreview } from '../components/FilePreview'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -375,6 +376,119 @@ function UploadToast({ files, tr }) {
   )
 }
 
+// ── PendingUploadModal ────────────────────────────────────────────────────────
+
+function PendingUploadModal({ file, allDirs, onClose, onUpload }) {
+  const [selectedDir, setSelectedDir] = useState('')
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [folderError, setFolderError] = useState('')
+  const { token } = useAuth()
+
+  const rootDirs = allDirs.filter(d => d.parentId === '')
+
+  const handleCreateAndUpload = async () => {
+    const name = newFolderName.trim()
+    if (!name) { setFolderError('Enter a folder name'); return }
+    setCreating(true)
+    try {
+      const res = await fetch('/api/storage/dirs', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parentId: '' }),
+      })
+      const dir = await res.json()
+      if (!res.ok) { setFolderError(dir.error || 'Failed'); setCreating(false); return }
+      onUpload(dir.id, dir)
+    } catch { setCreating(false) }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Where to save your file?</h3>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-2)', borderRadius: 8, display:'flex', gap:'0.75rem', alignItems:'center' }}>
+            <span style={{ fontSize:'1.4rem' }}>📦</span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize:'0.9rem' }}>{file.name}</div>
+              <div style={{ color:'var(--text-dim)', fontSize:'0.8rem' }}>{formatBytes(file.size)}</div>
+            </div>
+          </div>
+
+          {!showNewFolder ? (
+            <>
+              <p style={{ fontSize:'0.85rem', color:'var(--text-dim)', marginBottom:'0.75rem' }}>
+                Choose a destination folder:
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem', maxHeight:220, overflowY:'auto' }}>
+                <button
+                  className={`folder-select-btn${selectedDir === '' ? ' selected' : ''}`}
+                  onClick={() => setSelectedDir('')}
+                >
+                  🏠 Root (no folder)
+                </button>
+                {rootDirs.map(d => (
+                  <button
+                    key={d.id}
+                    className={`folder-select-btn${selectedDir === d.id ? ' selected' : ''}`}
+                    onClick={() => setSelectedDir(d.id)}
+                  >
+                    📁 {d.name}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ marginTop:'0.75rem', width:'100%' }}
+                onClick={() => setShowNewFolder(true)}
+              >
+                + Create new folder
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize:'0.85rem', color:'var(--text-dim)', marginBottom:'0.75rem' }}>
+                New folder name:
+              </p>
+              <div className="auth-input-wrap">
+                <input
+                  type="text"
+                  placeholder="Folder name"
+                  value={newFolderName}
+                  onChange={e => { setNewFolderName(e.target.value); setFolderError('') }}
+                  maxLength={64}
+                  autoFocus
+                />
+              </div>
+              {folderError && <div className="auth-error" style={{ marginTop:'0.5rem' }}>{folderError}</div>}
+              <button className="btn btn-ghost btn-sm" style={{ marginTop:'0.5rem' }} onClick={() => setShowNewFolder(false)}>
+                ← Back to folder list
+              </button>
+            </>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>Cancel</button>
+          {showNewFolder ? (
+            <button className="btn btn-primary btn-sm" onClick={handleCreateAndUpload} disabled={creating}>
+              {creating ? <><span className="spinner" /> Creating…</> : 'Create & Upload'}
+            </button>
+          ) : (
+            <button className="btn btn-primary btn-sm" onClick={() => onUpload(selectedDir, null)}>
+              Upload here
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── FAB Component ─────────────────────────────────────────────────────────────
 
 function FAB({ onUploadFiles, onUploadFolder, onNewFolder, tr }) {
@@ -451,11 +565,14 @@ export default function Storage() {
   const { user, token, logout } = useAuth()
   const { tr } = useLang()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { pendingFile, setPendingFile } = usePendingUpload()
 
   const [allDirs, setAllDirs]     = useState([])
   const [files, setFiles]         = useState([])
   const [currentDir, setCurrentDir] = useState('')
-  const [stats, setStats]         = useState({ storageUsed:0, storageLimit:32212254720, fileCount:0, dirCount:0 })
+  const [stats, setStats]         = useState({ storageUsed:0, storageLimit: 5 * 1024 * 1024 * 1024, fileCount:0, dirCount:0 })
+  const [showPendingUpload, setShowPendingUpload] = useState(false)
   const [loadingContent, setLoadingContent] = useState(true)
   const [showNewFolder, setShowNewFolder]   = useState(false)
   const [renameTarget, setRenameTarget]     = useState(null)
@@ -520,6 +637,13 @@ export default function Storage() {
   }, [token, currentDir])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Show pending upload modal once content is loaded
+  useEffect(() => {
+    if (!loadingContent && pendingFile && location.state?.pendingUpload) {
+      setShowPendingUpload(true)
+    }
+  }, [loadingContent, pendingFile, location.state])
 
   const navigate2Dir = (id) => { setCurrentDir(id); setFiles([]); setSearchQuery('') }
 
@@ -694,6 +818,39 @@ export default function Storage() {
   }
 
   const handleLogout = async () => { await logout(); navigate('/') }
+
+  const handlePendingUploadConfirm = async (dirId, newDir) => {
+    setShowPendingUpload(false)
+    if (newDir) {
+      setAllDirs(prev => [...prev, newDir])
+    }
+    if (!pendingFile) return
+    const fileToUpload = pendingFile
+    setPendingFile(null)
+    await new Promise(resolve => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/storage/files')
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      const prog = [{ name: fileToUpload.name, progress: 0 }]
+      setUploadingFiles(prog)
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100)
+          setUploadingFiles([{ name: fileToUpload.name, progress: pct }])
+        }
+      }
+      xhr.onload = () => {
+        setUploadingFiles([{ name: fileToUpload.name, progress: 100 }])
+        resolve()
+      }
+      xhr.onerror = resolve
+      const fd = new FormData()
+      fd.append('file', fileToUpload)
+      fd.append('dirId', dirId)
+      xhr.send(fd)
+    })
+    setTimeout(() => { setUploadingFiles([]); loadAll() }, 800)
+  }
 
   // ── Filtered items (search) ───────────────────────────────────
   const q = searchQuery.trim().toLowerCase()
@@ -969,6 +1126,15 @@ export default function Storage() {
       {uploadingFiles.length > 0 && <UploadToast files={uploadingFiles} tr={tr} />}
 
       {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
+
+      {showPendingUpload && pendingFile && (
+        <PendingUploadModal
+          file={pendingFile}
+          allDirs={allDirs}
+          onClose={() => { setShowPendingUpload(false); setPendingFile(null) }}
+          onUpload={handlePendingUploadConfirm}
+        />
+      )}
     </div>
   )
 }

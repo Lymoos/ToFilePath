@@ -3692,3 +3692,44 @@ input:-webkit-autofill:active {
   .feature-card:hover { transform: none; }
   .btn-primary:hover:not(:disabled) { transform: none; }
 }
+
+/* ── Need-account prompt (Home page) ─────────────────────────────── */
+.need-account-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 180, 0, 0.08);
+  border: 1px solid rgba(255, 180, 0, 0.25);
+  border-radius: 10px;
+  margin-top: 0.75rem;
+  color: var(--text);
+}
+.need-account-prompt > svg { flex-shrink: 0; color: #ffb400; margin-top: 2px; }
+.need-account-text { flex: 1; min-width: 160px; }
+.need-account-text strong { display: block; font-size: 0.9rem; margin-bottom: 0.2rem; }
+.need-account-text p { margin: 0; font-size: 0.82rem; color: var(--text-dim); }
+.need-account-actions { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
+
+/* ── Folder select buttons (PendingUploadModal) ───────────────────── */
+.folder-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.folder-select-btn:hover { background: var(--surface-3); }
+.folder-select-btn.selected {
+  border-color: var(--green);
+  background: rgba(0, 217, 126, 0.08);
+  color: var(--green);
+}

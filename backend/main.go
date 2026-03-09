@@ -19,12 +19,15 @@ import (
 )
 
 const (
-	maxUploadSize = 30 << 30
-	uploadDir     = "uploads"
-	accountsDir   = "uploads/accounts"
-	listenAddr    = ":8080"
-	codeChars     = "abcdefghijkmnpqrstuvwxyz23456789"
-	tokenExpiry   = 30 * 24 * time.Hour
+	maxAnonUploadSize    = 1 << 30         // 1 GB — anonymous uploads
+	maxAccountUploadSize = 10 << 30        // 10 GB — max body for account uploads (admin ceiling)
+	userStorageLimit     = int64(5) << 30  // 5 GB per regular account
+	adminStorageLimit    = int64(10) << 30 // 10 GB for admin account
+	uploadDir            = "uploads"
+	accountsDir          = "uploads/accounts"
+	listenAddr           = ":8080"
+	codeChars            = "abcdefghijkmnpqrstuvwxyz23456789"
+	tokenExpiry          = 30 * 24 * time.Hour
 )
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -170,15 +173,23 @@ func authFromRequest(r *http.Request) *User {
 	return user
 }
 
+func storageQuota(u *User) int64 {
+	if u.IsAdmin {
+		return adminStorageLimit
+	}
+	return userStorageLimit
+}
+
 func userJSON(u *User) map[string]any {
 	return map[string]any{
-		"id":          u.ID,
-		"username":    u.Username,
-		"email":       u.Email,
-		"createdAt":   u.CreatedAt,
-		"storageUsed": u.StorageUsed,
-		"isAdmin":     u.IsAdmin,
-		"language":    u.Language,
+		"id":           u.ID,
+		"username":     u.Username,
+		"email":        u.Email,
+		"createdAt":    u.CreatedAt,
+		"storageUsed":  u.StorageUsed,
+		"storageLimit": storageQuota(u),
+		"isAdmin":      u.IsAdmin,
+		"language":     u.Language,
 	}
 }
 
@@ -214,9 +225,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+4096)
+	r.Body = http.MaxBytesReader(w, r.Body, maxAnonUploadSize+4096)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		jsonErr(w, http.StatusBadRequest, "file too large or invalid request (max 30 GB)")
+		jsonErr(w, http.StatusRequestEntityTooLarge, "file too large — anonymous uploads are limited to 1 GB; create an account to upload up to 5 GB")
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -915,9 +926,19 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w, result)
 
 	case http.MethodPost:
-		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+4096)
+		quota := storageQuota(user)
+		authMu.RLock()
+		used := user.StorageUsed
+		authMu.RUnlock()
+		remaining := quota - used
+		if remaining <= 0 {
+			jsonErr(w, http.StatusForbidden, fmt.Sprintf("storage quota exceeded — limit is %d GB", quota>>30))
+			return
+		}
+		// Accept up to remaining quota bytes
+		r.Body = http.MaxBytesReader(w, r.Body, remaining+4096)
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			jsonErr(w, http.StatusBadRequest, "file too large or invalid request")
+			jsonErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — you have %.1f GB remaining", float64(remaining)/(1<<30)))
 			return
 		}
 		file, header, err := r.FormFile("file")
@@ -926,6 +947,12 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer file.Close()
+
+		// Re-check quota against declared file size
+		if header.Size > 0 && used+header.Size > quota {
+			jsonErr(w, http.StatusForbidden, fmt.Sprintf("file too large — you have %.1f GB remaining", float64(remaining)/(1<<30)))
+			return
+		}
 
 		dirID := r.FormValue("dirId")
 		if dirID != "" {
@@ -953,6 +980,16 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			os.Remove(filepath.Join(userDir, fid))
 			jsonErr(w, http.StatusInternalServerError, "failed to write file")
+			return
+		}
+
+		// Final quota check after actual write
+		if used+size > quota {
+			os.Remove(filepath.Join(userDir, fid))
+			authMu.Lock()
+			user.StorageUsed -= 0 // nothing added yet
+			authMu.Unlock()
+			jsonErr(w, http.StatusForbidden, fmt.Sprintf("storage quota exceeded — limit is %d GB", quota>>30))
 			return
 		}
 
@@ -1104,7 +1141,7 @@ func storageStatsHandler(w http.ResponseWriter, r *http.Request) {
 	authMu.RUnlock()
 	jsonOK(w, map[string]any{
 		"storageUsed":  storageUsed,
-		"storageLimit": int64(30) << 30,
+		"storageLimit": storageQuota(user),
 		"fileCount":    fileCount,
 		"dirCount":     dirCount,
 	})

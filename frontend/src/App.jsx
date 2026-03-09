@@ -1,6 +1,7 @@
 import { Routes, Route, Outlet } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { LangProvider } from './context/LanguageContext'
+import { UploadProvider } from './context/UploadContext'
 import Navbar from './components/Navbar'
 import AuthGuard from './components/AuthGuard'
 import Home from './pages/Home'
@@ -27,6 +28,7 @@ function MainLayout() {
 export default function App() {
   return (
     <AuthProvider>
+      <UploadProvider>
       <LangProvider>
         <Routes>
           {/* Auth page — full screen, no navbar */}
@@ -51,6 +53,7 @@ export default function App() {
           </Route>
         </Routes>
       </LangProvider>
+      </UploadProvider>
     </AuthProvider>
   )
 }

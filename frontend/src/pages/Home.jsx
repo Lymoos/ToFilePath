@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import { useAuth } from '../context/AuthContext'
+import { usePendingUpload } from '../context/UploadContext'
 
 const API = ''
 
@@ -171,10 +174,12 @@ const DL_OPTIONS = [
   { label: '50 downloads', value: 50 },
 ]
 
+const ANON_LIMIT = 1 * 1024 * 1024 * 1024 // 1 GB
+
 const FEATURES = [
   {
     title: 'Instant uploads',
-    desc:  'Upload any file up to 30 GB and get a shareable link in seconds. No sign-up.',
+    desc:  'Upload any file up to 1 GB and get a shareable link in seconds. No sign-up.',
     icon:  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
   },
   {
@@ -206,6 +211,10 @@ const FEATURES = [
 
 /* ── Main component ───────────────────────────────── */
 export default function Home() {
+  const { user } = useAuth()
+  const { setPendingFile } = usePendingUpload()
+  const navigate = useNavigate()
+
   const [file,        setFile]        = useState(null)
   const [dragOver,    setDragOver]    = useState(false)
   const [showOptions, setShowOptions] = useState(false)
@@ -215,6 +224,7 @@ export default function Home() {
   const [result,      setResult]      = useState(null)
   const [copied,      setCopied]      = useState(false)
   const [stats,       setStats]       = useState(null)
+  const [needAccount, setNeedAccount] = useState(false)
   const fileRef = useRef()
 
   // Idea 2: Upload speed + ETA
@@ -233,13 +243,22 @@ export default function Home() {
     fetch(`${API}/api/stats`).then(r => r.json()).then(setStats).catch(() => {})
   }, [result])
 
-  const onDrop      = useCallback((e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setFile(f) }, [])
+  const handleFileSelect = useCallback((f) => {
+    setFile(f)
+    setNeedAccount(!user && f.size > ANON_LIMIT)
+  }, [user])
+
+  const onDrop      = useCallback((e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }, [handleFileSelect])
   const onDragOver  = useCallback((e) => { e.preventDefault(); setDragOver(true)  }, [])
   const onDragLeave = useCallback(() => setDragOver(false), [])
-  const onFileChange = (e) => { if (e.target.files[0]) setFile(e.target.files[0]) }
+  const onFileChange = (e) => { if (e.target.files[0]) handleFileSelect(e.target.files[0]) }
 
   const upload = () => {
     if (!file) return
+    if (!user && file.size > ANON_LIMIT) {
+      setNeedAccount(true)
+      return
+    }
     const form = new FormData()
     form.append('file', file)
     form.append('expiryHours',  String(options.expiryHours))
@@ -294,7 +313,7 @@ export default function Home() {
 
   const reset = () => {
     setFile(null); setResult(null); setProgress(0)
-    setCopied(false); setShowOptions(false)
+    setCopied(false); setShowOptions(false); setNeedAccount(false)
     setOptions({ expiryHours: 24, maxDownloads: 0, password: '' })
   }
 
@@ -317,7 +336,7 @@ export default function Home() {
 
         <div className="hero-badge">
           <span className="hero-badge-dot" />
-          Up to 30 GB &middot; No account needed
+          Up to 1 GB &middot; No account needed &middot; Up to 5 GB with account
         </div>
 
         <h1 className="hero-title">
@@ -327,8 +346,8 @@ export default function Home() {
         </h1>
 
         <p className="hero-sub">
-          Upload any file up to&nbsp;<strong>30&nbsp;GB</strong> and get a short link
-          instantly. Set an expiry, limit downloads, or lock with a password.
+          Upload any file up to&nbsp;<strong>1&nbsp;GB</strong> and get a short link
+          instantly. <Link to="/login?mode=register" style={{ color:'var(--green)' }}>Create a free account</Link> for up to 5&nbsp;GB of personal storage.
         </p>
       </section>
 
@@ -364,7 +383,7 @@ export default function Home() {
               ) : (
                 <>
                   <h3>Drag &amp; drop your file here</h3>
-                  <p>or click to browse &mdash; up to 30 GB</p>
+                  <p>or click to browse &mdash; up to 1 GB</p>
                   <p style={{ fontSize:'0.78rem', color:'var(--text-dim)' }}>
                     Archives, videos, images, documents &mdash; anything goes
                   </p>
@@ -372,7 +391,29 @@ export default function Home() {
               )}
             </div>
 
-            {file && (
+            {needAccount && (
+              <div className="need-account-prompt">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                  <line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="12" cy="16" r="1" fill="currentColor"/>
+                </svg>
+                <div className="need-account-text">
+                  <strong>File exceeds 1 GB</strong>
+                  <p>Anonymous uploads are limited to 1&nbsp;GB. Create a free account to upload up to 5&nbsp;GB.</p>
+                </div>
+                <div className="need-account-actions">
+                  <button className="btn btn-primary btn-sm" onClick={() => { setPendingFile(file); navigate('/login?mode=register') }}>
+                    Create Account
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setPendingFile(file); navigate('/login') }}>
+                    Sign In
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {file && !needAccount && (
               <button
                 className={`options-toggle${showOptions ? ' open' : ''}`}
                 onClick={() => setShowOptions(v => !v)}
@@ -415,7 +456,7 @@ export default function Home() {
               </div>
             )}
 
-            {file && (
+            {file && !needAccount && (
               <>
                 <button className="btn btn-primary btn-full" onClick={upload} disabled={uploading}>
                   {uploading ? (
@@ -546,8 +587,8 @@ export default function Home() {
             <div className="stat-label">Downloads served</div>
           </div>
           <div>
-            <div className="stat-value stat-pulse">30 GB</div>
-            <div className="stat-label">Max file size</div>
+            <div className="stat-value stat-pulse">5 GB</div>
+            <div className="stat-label">Account storage</div>
           </div>
         </div>
       </section>

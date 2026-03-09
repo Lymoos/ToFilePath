@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { usePendingUpload } from '../context/UploadContext'
 
 /* ── Mini floating particles (reused from Home) ── */
 function AuthParticles() {
@@ -28,8 +29,10 @@ function AuthParticles() {
 
 export default function Auth() {
   const { login, register, user, loading } = useAuth()
+  const { pendingFile } = usePendingUpload()
   const navigate = useNavigate()
-  const [mode, setMode] = useState('login') // 'login' | 'register'
+  const [searchParams] = useSearchParams()
+  const [mode, setMode] = useState(() => searchParams.get('mode') === 'register' ? 'register' : 'login')
   const [animKey, setAnimKey] = useState(0)
 
   const [username, setUsername] = useState('')
@@ -67,10 +70,11 @@ export default function Auth() {
     try {
       if (mode === 'login') {
         await login(username, password)
+        navigate(pendingFile ? '/storage' : '/storage', { state: pendingFile ? { pendingUpload: true } : undefined })
       } else {
         await register(username, email, password)
+        navigate('/storage', { state: pendingFile ? { pendingUpload: true } : undefined })
       }
-      navigate('/storage')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -120,7 +124,7 @@ export default function Auth() {
           ) : (
             <>
               <h2>Create your account</h2>
-              <p>Get 30&nbsp;GB of secure personal storage — free</p>
+              <p>Get 5&nbsp;GB of secure personal storage — free</p>
             </>
           )}
         </div>
