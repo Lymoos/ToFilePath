@@ -112,7 +112,6 @@ function Breadcrumb({ currentDir, allDirs, onNavigate, tr }) {
   )
 }
 
-// ── Pencil icon SVG ───────────────────────────────────────────────────────────
 function PencilIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -145,7 +144,7 @@ function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, tr }) {
             <polyline points="7 10 12 15 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
           </svg>
-          ZIP
+          <span className="btn-label">ZIP</span>
         </button>
         {confirm ? (
           <>
@@ -376,6 +375,65 @@ function UploadToast({ files, tr }) {
   )
 }
 
+// ── FAB Component ─────────────────────────────────────────────────────────────
+
+function FAB({ onUploadFiles, onUploadFolder, onNewFolder, tr }) {
+  const [open, setOpen] = useState(false)
+  const fileRef = useRef()
+  const folderRef = useRef()
+
+  return (
+    <>
+      {open && (
+        <>
+          <div style={{ position:'fixed', inset:0, zIndex:89 }} onClick={() => setOpen(false)} />
+          <div className="fab-menu">
+            <button className="fab-menu-item" onClick={() => { setOpen(false); onNewFolder() }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" strokeWidth="2"/>
+                <line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="9" y1="14" x2="15" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              {tr('storage.newFolder')}
+            </button>
+            <button className="fab-menu-item" onClick={() => { setOpen(false); folderRef.current?.click() }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" strokeWidth="2"/>
+                <line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="9" y1="14" x2="15" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              Upload folder
+            </button>
+            <button className="fab-menu-item" onClick={() => { setOpen(false); fileRef.current?.click() }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="17 8 12 3 7 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              {tr('storage.upload')}
+            </button>
+          </div>
+        </>
+      )}
+      <button className="storage-fab" onClick={() => setOpen(v => !v)} aria-label="Quick actions">
+        {open ? (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+          </svg>
+        ) : (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+            <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+          </svg>
+        )}
+      </button>
+      <input ref={fileRef} type="file" multiple hidden onChange={e => { if (e.target.files?.length) onUploadFiles(e.target.files); e.target.value = '' }} />
+      <input ref={folderRef} type="file" webkitdirectory="" mozdirectory="" hidden onChange={e => { if (e.target.files?.length) onUploadFolder(e.target.files); e.target.value = '' }} />
+    </>
+  )
+}
+
 // ── Main Storage Page ─────────────────────────────────────────────────────────
 
 const SIDEBAR_MIN = 180
@@ -393,19 +451,30 @@ export default function Storage() {
   const [stats, setStats]         = useState({ storageUsed:0, storageLimit:32212254720, fileCount:0, dirCount:0 })
   const [loadingContent, setLoadingContent] = useState(true)
   const [showNewFolder, setShowNewFolder]   = useState(false)
-  const [renameTarget, setRenameTarget]     = useState(null) // { item, type: 'dir'|'file' }
+  const [renameTarget, setRenameTarget]     = useState(null)
   const [uploadingFiles, setUploadingFiles] = useState([])
   const [dragOver, setDragOver]   = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [previewFile, setPreviewFile] = useState(null)
+
+  // ── Idea 1: File search ───────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // ── Idea 3: Grid / List view toggle ──────────────────────────
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('tfp_view') || 'list')
+
   const fileInputRef = useRef(null)
+  const folderInputRef = useRef(null)
   const dragHandleRef = useRef(null)
   const isResizing = useRef(false)
 
   const http = apiClient(token)
 
-  // ── Resizable sidebar ─────────────────────────────────────────────────────
+  // Persist view mode
+  useEffect(() => { localStorage.setItem('tfp_view', viewMode) }, [viewMode])
+
+  // ── Resizable sidebar ─────────────────────────────────────────
   useEffect(() => {
     const onMouseMove = (e) => {
       if (!isResizing.current) return
@@ -427,7 +496,7 @@ export default function Storage() {
     document.body.style.cursor = 'col-resize'
   }
 
-  // ── Data loading ──────────────────────────────────────────────────────────
+  // ── Data loading ──────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     setLoadingContent(true)
     try {
@@ -445,9 +514,9 @@ export default function Storage() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  const navigate2Dir = (id) => { setCurrentDir(id); setFiles([]) }
+  const navigate2Dir = (id) => { setCurrentDir(id); setFiles([]); setSearchQuery('') }
 
-  // ── Actions ───────────────────────────────────────────────────────────────
+  // ── Actions ───────────────────────────────────────────────────
   const handleDeleteDir = async (dirId) => {
     await http.del(`/api/storage/dirs/${dirId}`)
     setAllDirs(prev => prev.filter(d => d.id !== dirId))
@@ -485,6 +554,7 @@ export default function Storage() {
     xhr.send()
   }
 
+  // ── Regular file upload ───────────────────────────────────────
   const uploadFiles = async (fileList) => {
     const items = Array.from(fileList).map(f => ({ name:f.name, progress:0, file:f }))
     setUploadingFiles(items)
@@ -518,8 +588,96 @@ export default function Storage() {
     setTimeout(() => { setUploadingFiles([]); loadAll() }, 800)
   }
 
+  // ── Folder upload (Idea: folder upload) ──────────────────────
+  // Parses webkitRelativePath to reconstruct folder structure, creates dirs, then uploads files
+  const uploadFolder = async (fileList) => {
+    const allFiles = Array.from(fileList)
+    if (!allFiles.length) return
+
+    // Build path → dirId map, seeded with current directory
+    const pathToId = { '': currentDir }
+
+    // Collect all unique directory paths (BFS order, shallowest first)
+    const dirPaths = new Set()
+    allFiles.forEach(f => {
+      const parts = f.webkitRelativePath.split('/')
+      // Collect every ancestor path
+      for (let depth = 1; depth < parts.length; depth++) {
+        dirPaths.add(parts.slice(0, depth).join('/'))
+      }
+    })
+
+    // Sort by depth so parents are created before children
+    const sortedDirPaths = [...dirPaths].sort((a, b) => {
+      const da = a.split('/').length, db = b.split('/').length
+      return da - db
+    })
+
+    // Create all directories
+    for (const dirPath of sortedDirPaths) {
+      const parts = dirPath.split('/')
+      const name = parts[parts.length - 1]
+      const parentPath = parts.slice(0, -1).join('/')
+      const parentId = pathToId[parentPath] ?? currentDir
+
+      try {
+        const res = await fetch('/api/storage/dirs', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, parentId }),
+        })
+        if (res.ok) {
+          const dir = await res.json()
+          pathToId[dirPath] = dir.id
+          setAllDirs(prev => [...prev, dir])
+        }
+      } catch {}
+    }
+
+    // Now upload files
+    const uploadItems = allFiles.map(f => {
+      const parts = f.webkitRelativePath.split('/')
+      const dirPath = parts.slice(0, -1).join('/')
+      const dirId = pathToId[dirPath] ?? currentDir
+      return { name: f.name, progress: 0, file: f, dirId }
+    })
+
+    setUploadingFiles(uploadItems.map(i => ({ name: i.name, progress: 0 })))
+
+    for (let i = 0; i < uploadItems.length; i++) {
+      const item = uploadItems[i]
+      await new Promise(resolve => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', '/api/storage/files')
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100)
+            setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: pct } : f))
+          }
+        }
+        xhr.onload = () => {
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100 } : f))
+          resolve()
+        }
+        xhr.onerror = resolve
+        const fd = new FormData()
+        fd.append('file', item.file)
+        fd.append('dirId', item.dirId)
+        xhr.send(fd)
+      })
+    }
+
+    setTimeout(() => { setUploadingFiles([]); loadAll() }, 800)
+  }
+
   const handleFilePick = (e) => {
     if (e.target.files?.length) uploadFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  const handleFolderPick = (e) => {
+    if (e.target.files?.length) uploadFolder(e.target.files)
     e.target.value = ''
   }
 
@@ -530,17 +688,34 @@ export default function Storage() {
 
   const handleLogout = async () => { await logout(); navigate('/') }
 
-  const currentSubDirs = allDirs.filter(d => d.parentId === currentDir)
-  const isEmpty = currentSubDirs.length === 0 && files.length === 0 && !loadingContent
+  // ── Filtered items (search) ───────────────────────────────────
+  const q = searchQuery.trim().toLowerCase()
+  const currentSubDirs = allDirs.filter(d => {
+    if (d.parentId !== currentDir) return false
+    if (q) return d.name.toLowerCase().includes(q)
+    return true
+  })
+  const filteredFiles = q
+    ? files.filter(f => f.name.toLowerCase().includes(q))
+    : files
+
+  const isEmpty = currentSubDirs.length === 0 && filteredFiles.length === 0 && !loadingContent
 
   return (
     <div className="storage-layout">
+      {/* ── Sidebar backdrop on mobile ── */}
+      {sidebarOpen && (
+        <div
+          className="mobile-sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* ── Sidebar ── */}
       <aside
         className={`storage-sidebar ${sidebarOpen ? 'open' : 'closed'}`}
         style={sidebarOpen ? { width: sidebarWidth } : undefined}
       >
-        {/* Profile section with settings gear */}
         <div className="sidebar-section">
           <div className="sidebar-user">
             <div className="sidebar-avatar">{user?.username?.[0]?.toUpperCase()}</div>
@@ -577,13 +752,12 @@ export default function Storage() {
           </div>
         </div>
 
-        {/* Sign out at bottom */}
         <div className="sidebar-section sidebar-bottom">
           <button className="btn btn-ghost sidebar-logout" onClick={handleLogout}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
               <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               <polyline points="16 17 21 12 16 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
             {tr('storage.signOut')}
           </button>
@@ -597,6 +771,7 @@ export default function Storage() {
 
       {/* ── Main ── */}
       <div className="storage-main">
+        {/* Header */}
         <div className="storage-header">
           <div className="storage-header-left">
             <button className="sidebar-toggle" onClick={() => setSidebarOpen(v => !v)}>
@@ -609,26 +784,93 @@ export default function Storage() {
             <Breadcrumb currentDir={currentDir} allDirs={allDirs} onNavigate={navigate2Dir} tr={tr} />
           </div>
           <div className="storage-header-actions">
+            {/* Idea 3: View toggle */}
+            <div className="view-toggle-group">
+              <button
+                className={`view-toggle-btn${viewMode === 'list' ? ' active' : ''}`}
+                onClick={() => setViewMode('list')}
+                title="List view"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="3" cy="6" r="1.5" fill="currentColor"/>
+                  <circle cx="3" cy="12" r="1.5" fill="currentColor"/>
+                  <circle cx="3" cy="18" r="1.5" fill="currentColor"/>
+                </svg>
+              </button>
+              <button
+                className={`view-toggle-btn${viewMode === 'grid' ? ' active' : ''}`}
+                onClick={() => setViewMode('grid')}
+                title="Grid view"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2"/>
+                  <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2"/>
+                  <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2"/>
+                  <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2"/>
+                </svg>
+              </button>
+            </div>
+
             <button className="btn btn-ghost btn-sm" onClick={() => setShowNewFolder(true)}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" strokeWidth="2"/>
                 <line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 <line x1="9" y1="14" x2="15" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
-              {tr('storage.newFolder')}
+              <span className="btn-label">{tr('storage.newFolder')}</span>
             </button>
+
+            {/* Folder upload button */}
+            <button className="btn btn-ghost btn-sm" onClick={() => folderInputRef.current?.click()}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" strokeWidth="2"/>
+                <polyline points="12 12 12 8 15 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="8" x2="9" y2="11" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <span className="btn-label">Folder</span>
+            </button>
+
             <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <polyline points="17 8 12 3 7 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
-              {tr('storage.upload')}
+              <span className="btn-label">{tr('storage.upload')}</span>
             </button>
             <input ref={fileInputRef} type="file" multiple hidden onChange={handleFilePick} />
+            <input ref={folderInputRef} type="file" webkitdirectory="" mozdirectory="" hidden onChange={handleFolderPick} />
           </div>
         </div>
 
+        {/* Idea 1: Search bar */}
+        <div className="storage-search-wrap">
+          <div className="storage-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
+              <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search files and folders…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button className="storage-search-clear" onClick={() => setSearchQuery('')}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Content */}
         <div
           className={`storage-content ${dragOver ? 'drag-active' : ''}`}
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -655,16 +897,19 @@ export default function Storage() {
             </div>
           ) : isEmpty ? (
             <div className="storage-empty">
-              <div className="storage-empty-icon">📂</div>
-              <h3>{tr('storage.empty')}</h3>
-              <p>{tr('storage.emptySub')}</p>
-              <div style={{ display:'flex', gap:'0.75rem', marginTop:'1.25rem', justifyContent:'center' }}>
-                <button className="btn btn-ghost" onClick={() => setShowNewFolder(true)}>{tr('storage.newFolder')}</button>
-                <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>{tr('storage.upload')}</button>
-              </div>
+              <div className="storage-empty-icon">{searchQuery ? '🔍' : '📂'}</div>
+              <h3>{searchQuery ? 'No results found' : tr('storage.empty')}</h3>
+              <p>{searchQuery ? `No files or folders matching "${searchQuery}"` : tr('storage.emptySub')}</p>
+              {!searchQuery && (
+                <div style={{ display:'flex', gap:'0.75rem', marginTop:'1.25rem', justifyContent:'center', flexWrap:'wrap' }}>
+                  <button className="btn btn-ghost" onClick={() => setShowNewFolder(true)}>{tr('storage.newFolder')}</button>
+                  <button className="btn btn-ghost" onClick={() => folderInputRef.current?.click()}>Upload folder</button>
+                  <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>{tr('storage.upload')}</button>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="storage-grid">
+            <div className={`storage-grid${viewMode === 'grid' ? ' grid-view' : ' list-view'}`}>
               {currentSubDirs.map((dir, i) => (
                 <FolderCard key={dir.id} dir={dir} tr={tr}
                   style={{ animationDelay: `${i * 0.05}s` }}
@@ -674,7 +919,7 @@ export default function Storage() {
                   onRename={() => setRenameTarget({ item: dir, type: 'dir' })}
                 />
               ))}
-              {files.map((file, i) => (
+              {filteredFiles.map((file, i) => (
                 <FileCard key={file.id} file={file} token={token} tr={tr}
                   onDelete={() => handleDeleteFile(file.id)}
                   onPreview={() => setPreviewFile(file)}
@@ -685,6 +930,14 @@ export default function Storage() {
           )}
         </div>
       </div>
+
+      {/* ── FAB (mobile) — Idea 5 ── */}
+      <FAB
+        onUploadFiles={uploadFiles}
+        onUploadFolder={uploadFolder}
+        onNewFolder={() => setShowNewFolder(true)}
+        tr={tr}
+      />
 
       {showNewFolder && (
         <NewFolderModal parentId={currentDir} tr={tr}

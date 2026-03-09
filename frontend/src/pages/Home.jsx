@@ -18,6 +18,42 @@ function formatExpiry(isoDate) {
   })
 }
 
+/* ── Idea 4: Toast notifications ──────────────────── */
+function useToast() {
+  const [toasts, setToasts] = useState([])
+  const show = useCallback((msg, type = 'error') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, msg, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500)
+  }, [])
+  return { toasts, show }
+}
+
+function ToastContainer({ toasts }) {
+  if (!toasts.length) return null
+  return (
+    <div className="toast-container">
+      {toasts.map(t => (
+        <div key={t.id} className={`toast ${t.type}`}>
+          {t.type === 'error' && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+              <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          )}
+          {t.type === 'success' && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+          {t.msg}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /* ── Rotating hero words ──────────────────────────── */
 const HERO_WORDS = ['Securely.', 'Privately.', 'Instantly.', 'Ephemerally.']
 
@@ -181,6 +217,14 @@ export default function Home() {
   const [stats,       setStats]       = useState(null)
   const fileRef = useRef()
 
+  // Idea 2: Upload speed + ETA
+  const [uploadSpeed, setUploadSpeed]   = useState(null) // bytes/sec
+  const [uploadETA,   setUploadETA]     = useState(null) // seconds remaining
+  const speedRef = useRef({ lastLoaded: 0, lastTime: 0 })
+
+  // Idea 4: Toast notifications
+  const { toasts, show: showToast } = useToast()
+
   const [featRef,  featVisible] = useInView(0.08)
   const [filesCount, filesRef]  = useCountUp(stats?.totalFiles    ?? null)
   const [dlCount,    dlRef]     = useCountUp(stats?.totalDownloads ?? null)
@@ -201,24 +245,51 @@ export default function Home() {
     form.append('expiryHours',  String(options.expiryHours))
     form.append('maxDownloads', String(options.maxDownloads))
     if (options.password) form.append('password', options.password)
-    setUploading(true); setProgress(0)
+    setUploading(true); setProgress(0); setUploadSpeed(null); setUploadETA(null)
+    speedRef.current = { lastLoaded: 0, lastTime: performance.now() }
+
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API}/api/upload`)
     xhr.upload.addEventListener('progress', e => {
-      if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100))
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100)
+        setProgress(pct)
+
+        // Idea 2: compute speed + ETA
+        const now = performance.now()
+        const dt = (now - speedRef.current.lastTime) / 1000 // seconds
+        const dBytes = e.loaded - speedRef.current.lastLoaded
+        if (dt > 0.2) { // update every 200ms
+          const speed = dBytes / dt
+          setUploadSpeed(speed)
+          const remaining = e.total - e.loaded
+          setUploadETA(speed > 0 ? Math.ceil(remaining / speed) : null)
+          speedRef.current = { lastLoaded: e.loaded, lastTime: now }
+        }
+      }
     })
     xhr.addEventListener('load', () => {
-      setUploading(false)
+      setUploading(false); setUploadSpeed(null); setUploadETA(null)
       if (xhr.status === 200) { setResult(JSON.parse(xhr.responseText)); setProgress(100) }
-      else { try { alert(JSON.parse(xhr.responseText).error || 'Upload failed') } catch { alert('Upload failed') } }
+      else {
+        try { showToast(JSON.parse(xhr.responseText).error || 'Upload failed') }
+        catch { showToast('Upload failed') }
+      }
     })
-    xhr.addEventListener('error', () => { setUploading(false); alert('Network error — is the server running?') })
+    xhr.addEventListener('error', () => {
+      setUploading(false); setUploadSpeed(null); setUploadETA(null)
+      showToast('Network error — is the server running?')
+    })
     xhr.send(form)
   }
 
   const copyLink = () => {
     navigator.clipboard.writeText(`${window.location.origin}/${result.shortCode}`)
-      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200) })
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2200)
+        showToast('Link copied to clipboard!', 'success')
+      })
   }
 
   const reset = () => {
@@ -229,8 +300,15 @@ export default function Home() {
 
   const downloadUrl = result ? `${window.location.origin}/${result.shortCode}` : ''
 
+  // Format ETA as human-readable
+  const etaStr = uploadETA != null
+    ? uploadETA > 60 ? `${Math.floor(uploadETA / 60)}m ${uploadETA % 60}s` : `${uploadETA}s`
+    : null
+
   return (
     <>
+      <ToastContainer toasts={toasts} />
+
       {/* ── Hero ──────────────────────────────────── */}
       <section className="hero">
         <div className="hero-grid"      aria-hidden="true" />
@@ -359,6 +437,22 @@ export default function Home() {
                       <div className="progress-bar" style={{ width:`${progress}%` }} />
                     </div>
                     <p className="progress-label">{progress}%</p>
+
+                    {/* Idea 2: Speed indicator */}
+                    {(uploadSpeed != null || etaStr) && (
+                      <div className="upload-speed-row">
+                        {uploadSpeed != null && (
+                          <span>
+                            Speed: <span className="upload-speed-val">{formatBytes(uploadSpeed)}/s</span>
+                          </span>
+                        )}
+                        {etaStr && (
+                          <span>
+                            ETA: <span className="upload-speed-val">{etaStr}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
