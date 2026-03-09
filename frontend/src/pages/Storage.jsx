@@ -271,7 +271,7 @@ function NewFolderModal({ onClose, onCreated, parentId, tr }) {
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             <div className="auth-input-wrap">
-              <input ref={inputRef} type="text" placeholder="Folder name"
+              <input ref={inputRef} type="text" placeholder={tr('storage.folderNamePlaceholder')}
                 value={name} onChange={e => { setName(e.target.value); setError('') }} maxLength={64} />
             </div>
             {error && <div className="auth-error" style={{ marginTop:'0.75rem' }}>{error}</div>}
@@ -279,7 +279,7 @@ function NewFolderModal({ onClose, onCreated, parentId, tr }) {
           <div className="modal-footer">
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>{tr('storage.cancel')}</button>
             <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>
-              {loading ? <><span className="spinner" /> Creating…</> : 'Create'}
+              {loading ? <><span className="spinner" /> {tr('storage.creating')}</> : tr('storage.create')}
             </button>
           </div>
         </form>
@@ -523,7 +523,7 @@ function FAB({ onUploadFiles, onUploadFolder, onNewFolder, tr }) {
                 <line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 <line x1="9" y1="14" x2="15" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
-              Upload folder
+              {tr('storage.uploadFolder')}
             </button>
             <button className="fab-menu-item" onClick={() => { setOpen(false); fileRef.current?.click() }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -994,7 +994,7 @@ export default function Storage() {
                 <polyline points="12 12 12 8 15 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <line x1="12" y1="8" x2="9" y2="11" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
-              <span className="btn-label">Folder</span>
+              <span className="btn-label">{tr('storage.uploadFolder')}</span>
             </button>
 
             <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()}>
@@ -1062,12 +1062,12 @@ export default function Storage() {
           ) : isEmpty ? (
             <div className="storage-empty">
               <div className="storage-empty-icon">{searchQuery ? '🔍' : '📂'}</div>
-              <h3>{searchQuery ? 'No results found' : tr('storage.empty')}</h3>
-              <p>{searchQuery ? `No files or folders matching "${searchQuery}"` : tr('storage.emptySub')}</p>
+              <h3>{searchQuery ? tr('storage.noResults') : tr('storage.empty')}</h3>
+              <p>{searchQuery ? tr('storage.noResultsSub', { q: searchQuery }) : tr('storage.emptySub')}</p>
               {!searchQuery && (
                 <div style={{ display:'flex', gap:'0.75rem', marginTop:'1.25rem', justifyContent:'center', flexWrap:'wrap' }}>
                   <button className="btn btn-ghost" onClick={() => setShowNewFolder(true)}>{tr('storage.newFolder')}</button>
-                  <button className="btn btn-ghost" onClick={() => folderInputRef.current?.click()}>Upload folder</button>
+                  <button className="btn btn-ghost" onClick={() => folderInputRef.current?.click()}>{tr('storage.uploadFolder')}</button>
                   <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>{tr('storage.upload')}</button>
                 </div>
               )}
