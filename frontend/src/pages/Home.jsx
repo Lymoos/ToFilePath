@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../context/AuthContext'
 import { usePendingUpload } from '../context/UploadContext'
+import { useLang } from '../context/LanguageContext'
 
 const API = ''
 
@@ -15,13 +16,13 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
-function formatExpiry(isoDate) {
-  return new Date(isoDate).toLocaleDateString('en-US', {
+function formatExpiry(isoDate, locale = 'en-US') {
+  return new Date(isoDate).toLocaleDateString(locale, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 }
 
-/* ── Idea 4: Toast notifications ──────────────────── */
+/* ── Toast notifications ──────────────────────────── */
 function useToast() {
   const [toasts, setToasts] = useState([])
   const show = useCallback((msg, type = 'error') => {
@@ -58,23 +59,27 @@ function ToastContainer({ toasts }) {
 }
 
 /* ── Rotating hero words ──────────────────────────── */
-const HERO_WORDS = ['Securely.', 'Privately.', 'Instantly.', 'Ephemerally.']
-
 function RotatingWord() {
+  const { tr } = useLang()
   const [idx,     setIdx]     = useState(0)
   const [animKey, setAnimKey] = useState(0)
 
+  const words = [
+    tr('home.word0'), tr('home.word1'), tr('home.word2'), tr('home.word3'),
+  ]
+
   useEffect(() => {
     const id = setInterval(() => {
-      setIdx(i => (i + 1) % HERO_WORDS.length)
+      setIdx(i => (i + 1) % words.length)
       setAnimKey(k => k + 1)
     }, 2600)
     return () => clearInterval(id)
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tr])
 
   return (
     <span className="rotating-word" key={animKey}>
-      {HERO_WORDS[idx]}
+      {words[idx]}
     </span>
   )
 }
@@ -156,56 +161,56 @@ function useInView(threshold = 0.1) {
   return [ref, visible]
 }
 
-/* ── Constants ───────────────────────────────────── */
+/* ── Constants (use translation keys for labels) ─── */
 const EXPIRY_OPTIONS = [
-  { label: '1 hour',   value: 1   },
-  { label: '12 hours', value: 12  },
-  { label: '1 day',    value: 24  },
-  { label: '3 days',   value: 72  },
-  { label: '7 days',   value: 168 },
-  { label: '30 days',  value: 720 },
+  { key: 'home.expiry1h',  value: 1   },
+  { key: 'home.expiry12h', value: 12  },
+  { key: 'home.expiry1d',  value: 24  },
+  { key: 'home.expiry3d',  value: 72  },
+  { key: 'home.expiry7d',  value: 168 },
+  { key: 'home.expiry30d', value: 720 },
 ]
 const DL_OPTIONS = [
-  { label: 'Unlimited',    value: 0  },
-  { label: '1 download',   value: 1  },
-  { label: '5 downloads',  value: 5  },
-  { label: '10 downloads', value: 10 },
-  { label: '25 downloads', value: 25 },
-  { label: '50 downloads', value: 50 },
+  { key: 'home.dlUnlimited', value: 0  },
+  { key: 'home.dl1',         value: 1  },
+  { key: 'home.dl5',         value: 5  },
+  { key: 'home.dl10',        value: 10 },
+  { key: 'home.dl25',        value: 25 },
+  { key: 'home.dl50',        value: 50 },
 ]
 
 const ANON_LIMIT = 1 * 1024 * 1024 * 1024 // 1 GB
 
 const FEATURES = [
   {
-    title: 'Instant uploads',
-    desc:  'Upload any file up to 1 GB and get a shareable link in seconds. No sign-up.',
-    icon:  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
+    titleKey: 'home.feat0.title',
+    descKey:  'home.feat0.desc',
+    icon: <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
   },
   {
-    title: 'Self-destructing links',
-    desc:  'Set expiry from 1 hour to 30 days. Files vanish automatically.',
-    icon:  <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
+    titleKey: 'home.feat1.title',
+    descKey:  'home.feat1.desc',
+    icon: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
   },
   {
-    title: 'Password protection',
-    desc:  'Lock your file so only the recipient with the password can download it.',
-    icon:  <><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
+    titleKey: 'home.feat2.title',
+    descKey:  'home.feat2.desc',
+    icon: <><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
   },
   {
-    title: 'Download limits',
-    desc:  'Cap at 1, 5, 10, 25 or 50 downloads. Link goes dark after the limit.',
-    icon:  <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><polyline points="7 10 12 15 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
+    titleKey: 'home.feat3.title',
+    descKey:  'home.feat3.desc',
+    icon: <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><polyline points="7 10 12 15 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
   },
   {
-    title: 'QR code sharing',
-    desc:  'Every upload generates a QR code — instantly share from desktop to phone.',
-    icon:  <><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 9h14M9 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
+    titleKey: 'home.feat4.title',
+    descKey:  'home.feat4.desc',
+    icon: <><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 9h14M9 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
   },
   {
-    title: 'Zero tracking',
-    desc:  'No cookies, no analytics, no accounts. Your files, your business.',
-    icon:  <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
+    titleKey: 'home.feat5.title',
+    descKey:  'home.feat5.desc',
+    icon: <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
   },
 ]
 
@@ -213,6 +218,7 @@ const FEATURES = [
 export default function Home() {
   const { user } = useAuth()
   const { setPendingFile } = usePendingUpload()
+  const { tr, lang } = useLang()
   const navigate = useNavigate()
 
   const [file,        setFile]        = useState(null)
@@ -227,12 +233,12 @@ export default function Home() {
   const [needAccount, setNeedAccount] = useState(false)
   const fileRef = useRef()
 
-  // Idea 2: Upload speed + ETA
+  // Upload speed + ETA
   const [uploadSpeed, setUploadSpeed]   = useState(null) // bytes/sec
   const [uploadETA,   setUploadETA]     = useState(null) // seconds remaining
   const speedRef = useRef({ lastLoaded: 0, lastTime: 0 })
 
-  // Idea 4: Toast notifications
+  // Toast notifications
   const { toasts, show: showToast } = useToast()
 
   const [featRef,  featVisible] = useInView(0.08)
@@ -274,11 +280,10 @@ export default function Home() {
         const pct = Math.round(e.loaded / e.total * 100)
         setProgress(pct)
 
-        // Idea 2: compute speed + ETA
         const now = performance.now()
-        const dt = (now - speedRef.current.lastTime) / 1000 // seconds
+        const dt = (now - speedRef.current.lastTime) / 1000
         const dBytes = e.loaded - speedRef.current.lastLoaded
-        if (dt > 0.2) { // update every 200ms
+        if (dt > 0.2) {
           const speed = dBytes / dt
           setUploadSpeed(speed)
           const remaining = e.total - e.loaded
@@ -291,8 +296,8 @@ export default function Home() {
       setUploading(false); setUploadSpeed(null); setUploadETA(null)
       if (xhr.status === 200) { setResult(JSON.parse(xhr.responseText)); setProgress(100) }
       else {
-        try { showToast(JSON.parse(xhr.responseText).error || 'Upload failed') }
-        catch { showToast('Upload failed') }
+        try { showToast(JSON.parse(xhr.responseText).error || tr('home.uploading')) }
+        catch { showToast(tr('home.uploading')) }
       }
     })
     xhr.addEventListener('error', () => {
@@ -307,7 +312,7 @@ export default function Home() {
       .then(() => {
         setCopied(true)
         setTimeout(() => setCopied(false), 2200)
-        showToast('Link copied to clipboard!', 'success')
+        showToast(tr('home.copied'), 'success')
       })
   }
 
@@ -318,8 +323,8 @@ export default function Home() {
   }
 
   const downloadUrl = result ? `${window.location.origin}/${result.shortCode}` : ''
+  const locale      = lang === 'ru' ? 'ru-RU' : 'en-US'
 
-  // Format ETA as human-readable
   const etaStr = uploadETA != null
     ? uploadETA > 60 ? `${Math.floor(uploadETA / 60)}m ${uploadETA % 60}s` : `${uploadETA}s`
     : null
@@ -336,18 +341,19 @@ export default function Home() {
 
         <div className="hero-badge">
           <span className="hero-badge-dot" />
-          Up to 1 GB &middot; No account needed &middot; Up to 5 GB with account
+          {tr('home.badge')}
         </div>
 
         <h1 className="hero-title">
-          <span className="hero-line-1">Drop it. Share it.</span>
+          <span className="hero-line-1">{tr('home.heroLine')}</span>
           <br />
           <RotatingWord />
         </h1>
 
         <p className="hero-sub">
-          Upload any file up to&nbsp;<strong>1&nbsp;GB</strong> and get a short link
-          instantly. <Link to="/login?mode=register" style={{ color:'var(--green)' }}>Create a free account</Link> for up to 5&nbsp;GB of personal storage.
+          {tr('home.heroSub1')}&nbsp;<strong>1&nbsp;GB</strong> {tr('home.heroSub2')}{' '}
+          <Link to="/login?mode=register" style={{ color:'var(--green)' }}>{tr('home.createFreeAccount')}</Link>{' '}
+          {tr('home.heroSub3')}
         </p>
       </section>
 
@@ -370,7 +376,7 @@ export default function Home() {
 
               {file ? (
                 <>
-                  <h3>Ready to upload</h3>
+                  <h3>{tr('home.readyToUpload')}</h3>
                   <p>{formatBytes(file.size)}</p>
                   <div className="file-selected-name">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -382,10 +388,10 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <h3>Drag &amp; drop your file here</h3>
-                  <p>or click to browse &mdash; up to 1 GB</p>
+                  <h3>{tr('home.dragDrop')}</h3>
+                  <p>{tr('home.orClickBrowse')}</p>
                   <p style={{ fontSize:'0.78rem', color:'var(--text-dim)' }}>
-                    Archives, videos, images, documents &mdash; anything goes
+                    {tr('home.fileTypes')}
                   </p>
                 </>
               )}
@@ -399,15 +405,15 @@ export default function Home() {
                   <circle cx="12" cy="16" r="1" fill="currentColor"/>
                 </svg>
                 <div className="need-account-text">
-                  <strong>File exceeds 1 GB</strong>
-                  <p>Anonymous uploads are limited to 1&nbsp;GB. Create a free account to upload up to 5&nbsp;GB.</p>
+                  <strong>{tr('home.fileExceeds')}</strong>
+                  <p>{tr('home.anonLimitText')}</p>
                 </div>
                 <div className="need-account-actions">
                   <button className="btn btn-primary btn-sm" onClick={() => { setPendingFile(file); navigate('/login?mode=register') }}>
-                    Create Account
+                    {tr('home.createAccount')}
                   </button>
                   <button className="btn btn-ghost btn-sm" onClick={() => { setPendingFile(file); navigate('/login') }}>
-                    Sign In
+                    {tr('nav.signIn')}
                   </button>
                 </div>
               </div>
@@ -422,7 +428,7 @@ export default function Home() {
                   <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
                   <path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
-                Advanced options
+                {tr('home.advancedOptions')}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
@@ -433,23 +439,23 @@ export default function Home() {
               <div className="options-panel">
                 <div className="options-grid">
                   <div className="option-group">
-                    <label>Expires after</label>
+                    <label>{tr('home.expiresAfter')}</label>
                     <select value={options.expiryHours}
                       onChange={e => setOptions(o => ({ ...o, expiryHours: Number(e.target.value) }))}>
-                      {EXPIRY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {EXPIRY_OPTIONS.map(o => <option key={o.value} value={o.value}>{tr(o.key)}</option>)}
                     </select>
                   </div>
                   <div className="option-group">
-                    <label>Download limit</label>
+                    <label>{tr('home.downloadLimit')}</label>
                     <select value={options.maxDownloads}
                       onChange={e => setOptions(o => ({ ...o, maxDownloads: Number(e.target.value) }))}>
-                      {DL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {DL_OPTIONS.map(o => <option key={o.value} value={o.value}>{tr(o.key)}</option>)}
                     </select>
                   </div>
                 </div>
                 <div className="option-group">
-                  <label>Password protection (optional)</label>
-                  <input type="password" placeholder="Leave blank for no password"
+                  <label>{tr('home.passwordOpt')}</label>
+                  <input type="password" placeholder={tr('home.passwordPlaceholder')}
                     value={options.password} autoComplete="new-password"
                     onChange={e => setOptions(o => ({ ...o, password: e.target.value }))} />
                 </div>
@@ -460,7 +466,7 @@ export default function Home() {
               <>
                 <button className="btn btn-primary btn-full" onClick={upload} disabled={uploading}>
                   {uploading ? (
-                    <><span className="spinner" /> Uploading…</>
+                    <><span className="spinner" /> {tr('home.uploading')}</>
                   ) : (
                     <>
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -468,7 +474,7 @@ export default function Home() {
                         <polyline points="17 8 12 3 7 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                       </svg>
-                      Upload &amp; Generate Link
+                      {tr('home.uploadBtn')}
                     </>
                   )}
                 </button>
@@ -479,17 +485,16 @@ export default function Home() {
                     </div>
                     <p className="progress-label">{progress}%</p>
 
-                    {/* Idea 2: Speed indicator */}
                     {(uploadSpeed != null || etaStr) && (
                       <div className="upload-speed-row">
                         {uploadSpeed != null && (
                           <span>
-                            Speed: <span className="upload-speed-val">{formatBytes(uploadSpeed)}/s</span>
+                            {tr('home.speedLabel')} <span className="upload-speed-val">{formatBytes(uploadSpeed)}/s</span>
                           </span>
                         )}
                         {etaStr && (
                           <span>
-                            ETA: <span className="upload-speed-val">{etaStr}</span>
+                            {tr('home.etaLabel')} <span className="upload-speed-val">{etaStr}</span>
                           </span>
                         )}
                       </div>
@@ -507,16 +512,16 @@ export default function Home() {
                 <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <h2>File uploaded!</h2>
+            <h2>{tr('home.fileUploaded')}</h2>
             <p className="file-meta">{result.originalName} &nbsp;&bull;&nbsp; {formatBytes(result.size)}</p>
 
             <div className="link-box">
               <span className="link-text">{downloadUrl}</span>
               <button className={`copy-btn${copied ? ' copied' : ''}`} onClick={copyLink}>
                 {copied ? (
-                  <><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>Copied!</>
+                  <><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>{tr('home.copied')}</>
                 ) : (
-                  <><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="2"/></svg>Copy</>
+                  <><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="2"/></svg>{tr('home.copy')}</>
                 )}
               </button>
             </div>
@@ -524,39 +529,39 @@ export default function Home() {
             <div className="success-meta-row">
               <span className="meta-chip">
                 <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                Expires {formatExpiry(result.expiresAt)}
+                {tr('home.expiresChip', { date: formatExpiry(result.expiresAt, locale) })}
               </span>
               {result.maxDownloads > 0 && (
                 <span className="meta-chip">
                   <svg viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><polyline points="7 10 12 15 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                  Max {result.maxDownloads} downloads
+                  {tr('home.maxDownloadsChip', { n: result.maxDownloads })}
                 </span>
               )}
               {result.hasPassword && (
                 <span className="meta-chip">
                   <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" strokeWidth="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                  Password protected
+                  {tr('home.passwordChip')}
                 </span>
               )}
             </div>
 
             <div className="qr-section">
-              <p className="qr-label">Scan to download</p>
+              <p className="qr-label">{tr('home.scanToDownload')}</p>
               <div className="qr-wrap">
                 <QRCodeSVG value={downloadUrl} size={140} bgColor="transparent" fgColor="#00d97e" level="M" />
               </div>
             </div>
 
-            <button className="new-upload-btn" onClick={reset}>↑ Upload another file</button>
+            <button className="new-upload-btn" onClick={reset}>{tr('home.uploadAnother')}</button>
           </div>
         )}
       </div>
 
       {/* ── Features ──────────────────────────────── */}
       <section className="features">
-        <p className="section-label">Why ToFilePath</p>
-        <h2 className="section-title">Everything you need, nothing you don't</h2>
-        <p className="section-sub">No accounts, no tracking, no nonsense.</p>
+        <p className="section-label">{tr('home.whyLabel')}</p>
+        <h2 className="section-title">{tr('home.whyTitle')}</h2>
+        <p className="section-sub">{tr('home.whySub')}</p>
 
         <div className={`features-grid${featVisible ? ' in-view' : ''}`} ref={featRef}>
           {FEATURES.map((f, i) => (
@@ -564,8 +569,8 @@ export default function Home() {
               <div className="feature-icon">
                 <svg viewBox="0 0 24 24" fill="none">{f.icon}</svg>
               </div>
-              <h3>{f.title}</h3>
-              <p>{f.desc}</p>
+              <h3>{tr(f.titleKey)}</h3>
+              <p>{tr(f.descKey)}</p>
             </div>
           ))}
         </div>
@@ -576,19 +581,19 @@ export default function Home() {
         <div className="stats-inner">
           <div ref={filesRef}>
             <div className="stat-value">{stats ? filesCount.toLocaleString() : '—'}</div>
-            <div className="stat-label">Files shared</div>
+            <div className="stat-label">{tr('home.statsFiles')}</div>
           </div>
           <div>
             <div className="stat-value">{stats ? formatBytes(stats.totalSize) : '—'}</div>
-            <div className="stat-label">Data transferred</div>
+            <div className="stat-label">{tr('home.statsData')}</div>
           </div>
           <div ref={dlRef}>
             <div className="stat-value">{stats ? dlCount.toLocaleString() : '—'}</div>
-            <div className="stat-label">Downloads served</div>
+            <div className="stat-label">{tr('home.statsDownloads')}</div>
           </div>
           <div>
             <div className="stat-value stat-pulse">5 GB</div>
-            <div className="stat-label">Account storage</div>
+            <div className="stat-label">{tr('home.statsStorage')}</div>
           </div>
         </div>
       </section>
