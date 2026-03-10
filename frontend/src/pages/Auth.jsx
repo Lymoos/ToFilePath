@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { usePendingUpload } from '../context/UploadContext'
+import { useLang } from '../context/LanguageContext'
 
-/* ── Mini floating particles (reused from Home) ── */
+/* ── Mini floating particles ─────────────────────── */
 function AuthParticles() {
   const particles = useMemo(() => (
     Array.from({ length: 14 }, (_, i) => ({
@@ -30,47 +31,40 @@ function AuthParticles() {
 export default function Auth() {
   const { login, register, user, loading } = useAuth()
   const { pendingFile } = usePendingUpload()
+  const { tr } = useLang()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [mode, setMode] = useState(() => searchParams.get('mode') === 'register' ? 'register' : 'login')
   const [animKey, setAnimKey] = useState(0)
 
   const [username, setUsername] = useState('')
-  const [email, setEmail]       = useState('')
+  const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
-  const [confirm, setConfirm]   = useState('')
-  const [error, setError]       = useState('')
+  const [confirm,  setConfirm]  = useState('')
+  const [error,    setError]    = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) navigate('/storage', { replace: true })
   }, [user, loading, navigate])
 
   const switchMode = (m) => {
-    setMode(m)
-    setError('')
-    setAnimKey(k => k + 1)
-    setUsername('')
-    setEmail('')
-    setPassword('')
-    setConfirm('')
+    setMode(m); setError(''); setAnimKey(k => k + 1)
+    setUsername(''); setEmail(''); setPassword(''); setConfirm('')
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-
     if (mode === 'register') {
-      if (password !== confirm) { setError('Passwords do not match'); return }
-      if (password.length < 6)  { setError('Password must be at least 6 characters'); return }
+      if (password !== confirm) { setError(tr('auth.passwordsNoMatch')); return }
+      if (password.length < 6)  { setError(tr('auth.passwordTooShort')); return }
     }
-
     setSubmitting(true)
     try {
       if (mode === 'login') {
         await login(username, password)
-        navigate(pendingFile ? '/storage' : '/storage', { state: pendingFile ? { pendingUpload: true } : undefined })
+        navigate('/storage', { state: pendingFile ? { pendingUpload: true } : undefined })
       } else {
         await register(username, email, password)
         navigate('/storage', { state: pendingFile ? { pendingUpload: true } : undefined })
@@ -106,11 +100,11 @@ export default function Auth() {
           <button
             className={`auth-tab ${mode === 'login' ? 'active' : ''}`}
             onClick={() => switchMode('login')}
-          >Sign In</button>
+          >{tr('auth.signIn')}</button>
           <button
             className={`auth-tab ${mode === 'register' ? 'active' : ''}`}
             onClick={() => switchMode('register')}
-          >Create Account</button>
+          >{tr('auth.createAccount')}</button>
           <div className="auth-tab-indicator" style={{ transform: `translateX(${mode === 'register' ? '100%' : '0'})` }} />
         </div>
 
@@ -118,13 +112,13 @@ export default function Auth() {
         <div className="auth-heading">
           {mode === 'login' ? (
             <>
-              <h2>Welcome back</h2>
-              <p>Sign in to access your personal storage</p>
+              <h2>{tr('auth.welcomeBack')}</h2>
+              <p>{tr('auth.signInSub')}</p>
             </>
           ) : (
             <>
-              <h2>Create your account</h2>
-              <p>Get 5&nbsp;GB of secure personal storage — free</p>
+              <h2>{tr('auth.createHeading')}</h2>
+              <p>{tr('auth.createSub')}</p>
             </>
           )}
         </div>
@@ -132,7 +126,7 @@ export default function Auth() {
         {/* Form */}
         <form className="auth-form" onSubmit={handleSubmit}>
           <div className="auth-field">
-            <label>Username{mode === 'login' ? ' or email' : ''}</label>
+            <label>{mode === 'login' ? tr('auth.usernameOrEmail') : tr('auth.username')}</label>
             <div className="auth-input-wrap">
               <svg className="field-icon" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="2"/>
@@ -140,7 +134,7 @@ export default function Auth() {
               </svg>
               <input
                 type="text"
-                placeholder={mode === 'login' ? 'username or email' : 'choose a username'}
+                placeholder={mode === 'login' ? tr('auth.usernameOrEmailPlaceholder') : tr('auth.usernamePlaceholder')}
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 required
@@ -152,7 +146,7 @@ export default function Auth() {
 
           {mode === 'register' && (
             <div className="auth-field">
-              <label>Email</label>
+              <label>{tr('auth.email')}</label>
               <div className="auth-input-wrap">
                 <svg className="field-icon" viewBox="0 0 24 24" fill="none">
                   <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="2"/>
@@ -171,7 +165,7 @@ export default function Auth() {
           )}
 
           <div className="auth-field">
-            <label>Password</label>
+            <label>{tr('auth.password')}</label>
             <div className="auth-input-wrap">
               <svg className="field-icon" viewBox="0 0 24 24" fill="none">
                 <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="2"/>
@@ -179,7 +173,7 @@ export default function Auth() {
               </svg>
               <input
                 type="password"
-                placeholder={mode === 'login' ? '••••••••' : 'at least 6 characters'}
+                placeholder={mode === 'login' ? '••••••••' : tr('auth.passwordPlaceholder')}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
@@ -190,7 +184,7 @@ export default function Auth() {
 
           {mode === 'register' && (
             <div className="auth-field">
-              <label>Confirm password</label>
+              <label>{tr('auth.confirmPassword')}</label>
               <div className="auth-input-wrap">
                 <svg className="field-icon" viewBox="0 0 24 24" fill="none">
                   <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -211,9 +205,9 @@ export default function Auth() {
 
           <button type="submit" className="btn btn-primary btn-full auth-submit" disabled={submitting}>
             {submitting ? (
-              <><span className="spinner" /> {mode === 'login' ? 'Signing in…' : 'Creating account…'}</>
+              <><span className="spinner" /> {mode === 'login' ? tr('auth.signingIn') : tr('auth.creating')}</>
             ) : (
-              mode === 'login' ? 'Sign In' : 'Create Account'
+              mode === 'login' ? tr('auth.signIn') : tr('auth.createAccount')
             )}
           </button>
         </form>
@@ -221,9 +215,9 @@ export default function Auth() {
         {/* Footer toggle */}
         <p className="auth-switch">
           {mode === 'login' ? (
-            <>No account? <button className="auth-switch-btn" onClick={() => switchMode('register')}>Sign up free</button></>
+            <>{tr('auth.noAccount')} <button className="auth-switch-btn" onClick={() => switchMode('register')}>{tr('auth.signUpFree')}</button></>
           ) : (
-            <>Already registered? <button className="auth-switch-btn" onClick={() => switchMode('login')}>Sign in</button></>
+            <>{tr('auth.haveAccount')} <button className="auth-switch-btn" onClick={() => switchMode('login')}>{tr('auth.signInLink')}</button></>
           )}
         </p>
       </div>
