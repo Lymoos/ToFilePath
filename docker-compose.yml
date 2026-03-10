@@ -1,0 +1,12 @@
+services:
+  tofilepath:
+    build: .
+    container_name: tofilepath
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  uploads:

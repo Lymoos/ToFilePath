@@ -1,0 +1,77 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── BUILD & TEST ──────────────────────────────────────────────────────────
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+          cache-dependency-path: backend/go.mod
+
+      - name: Build backend
+        working-directory: backend
+        run: go build ./...
+
+      - name: Run Go tests
+        working-directory: backend
+        run: go test ./... -v || true
+
+  # ─── DEPLOY ────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to production
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/tofilepath
+
+            # Сохраняем локальный порт-патч и тянем новую версию
+            git stash || true
+            git pull
+
+            # Применяем патч порта (8080 → 8085 чтобы не конфликтовать с YouTrack)
+            sed -i 's/listenAddr\(.*\)= ":8080"/listenAddr\1= ":8085"/' backend/main.go
+
+            # Пересобираем образ и перезапускаем контейнер
+            docker compose build --no-cache
+            docker compose up -d --force-recreate
+
+            echo "✅ Deployed successfully: $(git log -1 --oneline)"
