@@ -11,10 +11,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -25,6 +27,7 @@ const (
 	adminStorageLimit    = int64(10) << 30 // 10 GB for admin account
 	uploadDir            = "uploads"
 	accountsDir          = "uploads/accounts"
+	dataFile             = "data/state.json"
 	listenAddr           = ":8080"
 	codeChars            = "abcdefghijkmnpqrstuvwxyz23456789"
 	tokenExpiry          = 30 * 24 * time.Hour
@@ -1169,13 +1172,248 @@ func cleanup() {
 	}
 }
 
+// ─── Persistence ──────────────────────────────────────────────────────────────
+
+// persistFileRecord mirrors FileRecord but exports the private password field
+// so it can be round-tripped through JSON.
+type persistFileRecord struct {
+	ShortCode    string    `json:"shortCode"`
+	OriginalName string    `json:"originalName"`
+	Size         int64     `json:"size"`
+	UploadedAt   time.Time `json:"uploadedAt"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+	Downloads    int       `json:"downloads"`
+	MaxDownloads int       `json:"maxDownloads"`
+	HasPassword  bool      `json:"hasPassword"`
+	Password     string    `json:"password"`
+}
+
+// persistUser mirrors User but exports PasswordHash and Salt (tagged json:"-"
+// in the live struct so they never leak into API responses).
+type persistUser struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"passwordHash"`
+	Salt         string    `json:"salt"`
+	CreatedAt    time.Time `json:"createdAt"`
+	StorageUsed  int64     `json:"storageUsed"`
+	IsAdmin      bool      `json:"isAdmin"`
+	Language     string    `json:"language"`
+}
+
+type persistData struct {
+	Records  []*persistFileRecord `json:"records"`
+	Users    []*persistUser       `json:"users"`
+	Sessions []*Session           `json:"sessions"`
+	Dirs     []*Directory         `json:"dirs"`
+	AccFiles []*AccountFile       `json:"accFiles"`
+}
+
+// saveState serialises all in-memory state to dataFile atomically.
+func saveState() error {
+	if err := os.MkdirAll(filepath.Dir(dataFile), 0o755); err != nil {
+		return err
+	}
+
+	mu.RLock()
+	pRecords := make([]*persistFileRecord, 0, len(records))
+	for _, r := range records {
+		pRecords = append(pRecords, &persistFileRecord{
+			ShortCode:    r.ShortCode,
+			OriginalName: r.OriginalName,
+			Size:         r.Size,
+			UploadedAt:   r.UploadedAt,
+			ExpiresAt:    r.ExpiresAt,
+			Downloads:    r.Downloads,
+			MaxDownloads: r.MaxDownloads,
+			HasPassword:  r.HasPassword,
+			Password:     r.password,
+		})
+	}
+	mu.RUnlock()
+
+	authMu.RLock()
+	pUsers := make([]*persistUser, 0, len(users))
+	for _, u := range users {
+		pUsers = append(pUsers, &persistUser{
+			ID:           u.ID,
+			Username:     u.Username,
+			Email:        u.Email,
+			PasswordHash: u.PasswordHash,
+			Salt:         u.Salt,
+			CreatedAt:    u.CreatedAt,
+			StorageUsed:  u.StorageUsed,
+			IsAdmin:      u.IsAdmin,
+			Language:     u.Language,
+		})
+	}
+	pSessions := make([]*Session, 0, len(sessions))
+	for _, s := range sessions {
+		pSessions = append(pSessions, s)
+	}
+	authMu.RUnlock()
+
+	storageMu.RLock()
+	pDirs := make([]*Directory, 0, len(dirs))
+	for _, d := range dirs {
+		pDirs = append(pDirs, d)
+	}
+	pAccFiles := make([]*AccountFile, 0, len(accFiles))
+	for _, f := range accFiles {
+		pAccFiles = append(pAccFiles, f)
+	}
+	storageMu.RUnlock()
+
+	b, err := json.Marshal(&persistData{
+		Records:  pRecords,
+		Users:    pUsers,
+		Sessions: pSessions,
+		Dirs:     pDirs,
+		AccFiles: pAccFiles,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Atomic write: write to a temp file then rename so a crash mid-write
+	// never leaves a corrupt state file.
+	tmp := dataFile + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dataFile)
+}
+
+// loadState reads dataFile and populates all in-memory maps.  Expired records
+// and sessions are silently skipped.
+func loadState() error {
+	b, err := os.ReadFile(dataFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // first run — start with empty state
+		}
+		return err
+	}
+
+	var data persistData
+	if err := json.Unmarshal(b, &data); err != nil {
+		return err
+	}
+
+	now := time.Now()
+
+	mu.Lock()
+	for _, r := range data.Records {
+		if now.Before(r.ExpiresAt) {
+			records[r.ShortCode] = &FileRecord{
+				ShortCode:    r.ShortCode,
+				OriginalName: r.OriginalName,
+				Size:         r.Size,
+				UploadedAt:   r.UploadedAt,
+				ExpiresAt:    r.ExpiresAt,
+				Downloads:    r.Downloads,
+				MaxDownloads: r.MaxDownloads,
+				HasPassword:  r.HasPassword,
+				password:     r.Password,
+			}
+		}
+	}
+	mu.Unlock()
+
+	authMu.Lock()
+	for _, u := range data.Users {
+		user := &User{
+			ID:           u.ID,
+			Username:     u.Username,
+			Email:        u.Email,
+			PasswordHash: u.PasswordHash,
+			Salt:         u.Salt,
+			CreatedAt:    u.CreatedAt,
+			StorageUsed:  u.StorageUsed,
+			IsAdmin:      u.IsAdmin,
+			Language:     u.Language,
+		}
+		users[user.ID] = user
+		usersByName[strings.ToLower(user.Username)] = user.ID
+		if user.Email != "" {
+			usersByEmail[strings.ToLower(user.Email)] = user.ID
+		}
+	}
+	for _, s := range data.Sessions {
+		if now.Before(s.ExpiresAt) {
+			sessions[s.Token] = s
+		}
+	}
+	authMu.Unlock()
+
+	storageMu.Lock()
+	for _, d := range data.Dirs {
+		dirs[d.ID] = d
+	}
+	for _, f := range data.AccFiles {
+		accFiles[f.ID] = f
+	}
+	storageMu.Unlock()
+
+	log.Printf("state loaded: %d file records, %d users, %d sessions, %d dirs, %d account files",
+		len(data.Records), len(data.Users), len(data.Sessions), len(data.Dirs), len(data.AccFiles))
+	return nil
+}
+
+// persistLoop saves state to disk every 5 minutes so data survives restarts.
+func persistLoop() {
+	for range time.Tick(5 * time.Minute) {
+		if err := saveState(); err != nil {
+			log.Printf("persist: %v", err)
+		}
+	}
+}
+
+// ─── SPA handler ──────────────────────────────────────────────────────────────
+
+// spaHandler serves static files from ./dist and falls back to index.html for
+// any path that doesn't correspond to an existing file. This lets React Router
+// handle all frontend routes (e.g. /storage, /settings) when the user
+// refreshes the page directly.
+func spaHandler() http.Handler {
+	fs := http.FileServer(http.Dir("./dist"))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Sanitise the path to prevent directory traversal.
+		clean := filepath.Join("./dist", filepath.Clean("/"+r.URL.Path))
+		if _, err := os.Stat(clean); os.IsNotExist(err) {
+			http.ServeFile(w, r, "./dist/index.html")
+			return
+		}
+		fs.ServeHTTP(w, r)
+	})
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 func main() {
 	os.MkdirAll(uploadDir, 0o755)
 	os.MkdirAll(accountsDir, 0o755)
+
+	if err := loadState(); err != nil {
+		log.Fatalf("loadState: %v", err)
+	}
+
 	seedAdmin()
 	go cleanup()
+	go persistLoop()
+
+	// Save state on SIGINT/SIGTERM so an orderly deployment never loses data.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-quit
+		log.Println("shutting down — saving state…")
+		if err := saveState(); err != nil {
+			log.Printf("persist: final save error: %v", err)
+		}
+		os.Exit(0)
+	}()
 
 	mux := http.NewServeMux()
 
@@ -1206,7 +1444,7 @@ func main() {
 	mux.HandleFunc("/api/storage/download/", cors(storageDownloadHandler))
 	mux.HandleFunc("/api/storage/stats", cors(storageStatsHandler))
 
-	mux.Handle("/", http.FileServer(http.Dir("./dist")))
+	mux.Handle("/", spaHandler())
 
 	log.Printf("ToFilePath server → http://localhost%s", listenAddr)
 	log.Fatal(http.ListenAndServe(listenAddr, mux))
