@@ -85,38 +85,43 @@ export default function Download() {
     setDownloading(true)
     setPasswordError('')
 
-    const qs = fileInfo.hasPassword ? `?password=${encodeURIComponent(password)}` : ''
-    const resp = await fetch(`${API}/api/download/${code}${qs}`)
+    try {
+      const qs = fileInfo.hasPassword ? `?password=${encodeURIComponent(password)}` : ''
+      const resp = await fetch(`${API}/api/download/${code}${qs}`)
 
-    if (resp.status === 401) {
-      setPasswordError('Wrong password — try again')
-      setDownloading(false)
-      return
-    }
-    if (resp.status === 403) {
-      setPasswordError('Download limit has been reached')
-      setDownloading(false)
-      return
-    }
-    if (!resp.ok) {
-      setPasswordError('Download failed — file may have expired')
-      setDownloading(false)
-      return
-    }
+      if (resp.status === 401) {
+        setPasswordError('Wrong password — try again')
+        setDownloading(false)
+        return
+      }
+      if (resp.status === 403) {
+        setPasswordError('Download limit has been reached')
+        setDownloading(false)
+        return
+      }
+      if (!resp.ok) {
+        setPasswordError('Download failed — file may have expired')
+        setDownloading(false)
+        return
+      }
 
-    // Stream to blob and trigger download
-    const blob = await resp.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileInfo.originalName
-    document.body.appendChild(a)
-    a.click()
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 1000)
+      // Stream to blob and trigger download
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileInfo.originalName
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 1000)
 
-    // Refresh info to update download count
-    setDownloading(false)
-    fetchInfo()
+      // Refresh info to update download count
+      setDownloading(false)
+      fetchInfo()
+    } catch {
+      setPasswordError('Download failed — check your connection')
+      setDownloading(false)
+    }
   }
 
   const dlsLeft = fileInfo?.maxDownloads > 0
