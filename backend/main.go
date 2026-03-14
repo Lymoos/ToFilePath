@@ -228,52 +228,111 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxAnonUploadSize+4096)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		jsonErr(w, http.StatusRequestEntityTooLarge, "file too large — anonymous uploads are limited to 1 GB; create an account to upload up to 5 GB")
+	r.Body = http.MaxBytesReader(w, r.Body, maxAnonUploadSize+(8<<20))
+	mr, err := r.MultipartReader()
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
+
+	expiryHours := 24
+	maxDL := 0
+	password := ""
+
+	var (
+		code         string
+		originalName string
+		size         int64
+		haveFile     bool
+	)
+
+	for {
+		part, partErr := mr.NextPart()
+		if partErr == io.EOF {
+			break
+		}
+		if partErr != nil {
+			jsonErr(w, http.StatusBadRequest, "failed to parse upload stream")
+			return
+		}
+
+		switch part.FormName() {
+		case "file":
+			if haveFile {
+				part.Close()
+				jsonErr(w, http.StatusBadRequest, "only one file is allowed")
+				return
+			}
+			if part.FileName() == "" {
+				part.Close()
+				jsonErr(w, http.StatusBadRequest, "no file provided")
+				return
+			}
+
+			code = uniqueCode()
+			originalName = part.FileName()
+
+			os.MkdirAll(uploadDir, 0o755)
+			dst, createErr := os.Create(filepath.Join(uploadDir, code))
+			if createErr != nil {
+				part.Close()
+				jsonErr(w, http.StatusInternalServerError, "failed to create file")
+				return
+			}
+
+			limitReader := &io.LimitedReader{R: part, N: maxAnonUploadSize + 1}
+			size, err = io.Copy(dst, limitReader)
+			dst.Close()
+			part.Close()
+			if err != nil {
+				os.Remove(filepath.Join(uploadDir, code))
+				jsonErr(w, http.StatusInternalServerError, "failed to write file")
+				return
+			}
+			if limitReader.N == 0 {
+				os.Remove(filepath.Join(uploadDir, code))
+				jsonErr(w, http.StatusRequestEntityTooLarge, "file too large — anonymous uploads are limited to 1 GB; create an account to upload up to 5 GB")
+				return
+			}
+			haveFile = true
+
+		case "expiryHours", "maxDownloads", "password":
+			raw, readErr := io.ReadAll(io.LimitReader(part, 1<<20))
+			part.Close()
+			if readErr != nil {
+				jsonErr(w, http.StatusBadRequest, "invalid form field")
+				return
+			}
+			val := strings.TrimSpace(string(raw))
+			switch part.FormName() {
+			case "expiryHours":
+				if n, convErr := strconv.Atoi(val); convErr == nil && n >= 1 && n <= 720 {
+					expiryHours = n
+				}
+			case "maxDownloads":
+				if n, convErr := strconv.Atoi(val); convErr == nil && n >= 0 {
+					maxDL = n
+				}
+			case "password":
+				password = val
+			}
+
+		default:
+			io.Copy(io.Discard, io.LimitReader(part, 1<<20))
+			part.Close()
+		}
+	}
+
+	if !haveFile {
 		jsonErr(w, http.StatusBadRequest, "no file provided")
 		return
 	}
-	defer file.Close()
-
-	expiryHours := 24
-	if v := r.FormValue("expiryHours"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 720 {
-			expiryHours = n
-		}
-	}
-	maxDL := 0
-	if v := r.FormValue("maxDownloads"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			maxDL = n
-		}
-	}
-	password := strings.TrimSpace(r.FormValue("password"))
-	code := uniqueCode()
-
-	os.MkdirAll(uploadDir, 0o755)
-	dst, err := os.Create(filepath.Join(uploadDir, code))
-	if err != nil {
-		jsonErr(w, http.StatusInternalServerError, "failed to create file")
-		return
-	}
-	defer dst.Close()
-
-	size, err := io.Copy(dst, file)
-	if err != nil {
-		os.Remove(filepath.Join(uploadDir, code))
-		jsonErr(w, http.StatusInternalServerError, "failed to write file")
-		return
-	}
+	password = strings.TrimSpace(password)
 
 	now := time.Now()
 	rec := &FileRecord{
 		ShortCode:    code,
-		OriginalName: header.Filename,
+		OriginalName: originalName,
 		Size:         size,
 		UploadedAt:   now,
 		ExpiresAt:    now.Add(time.Duration(expiryHours) * time.Hour),
@@ -285,10 +344,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	records[code] = rec
 	mu.Unlock()
 
-	log.Printf("upload code=%s name=%q size=%d", code, header.Filename, size)
+	log.Printf("upload code=%s name=%q size=%d", code, originalName, size)
 	jsonOK(w, map[string]any{
 		"shortCode":    code,
-		"originalName": header.Filename,
+		"originalName": originalName,
 		"size":         size,
 		"expiresAt":    rec.ExpiresAt,
 		"hasPassword":  rec.HasPassword,
@@ -698,11 +757,11 @@ func adminStatsHandler(w http.ResponseWriter, r *http.Request) {
 	mu.RUnlock()
 
 	jsonOK(w, map[string]any{
-		"users":       userList,
-		"totalUsers":  len(userList),
-		"totalFiles":  fileCount,
-		"totalDirs":   dirCount,
-		"anonFiles":   anonFiles,
+		"users":        userList,
+		"totalUsers":   len(userList),
+		"totalFiles":   fileCount,
+		"totalDirs":    dirCount,
+		"anonFiles":    anonFiles,
 		"totalStorage": totalStorage,
 	})
 }
@@ -938,60 +997,118 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusForbidden, fmt.Sprintf("storage quota exceeded — limit is %d GB", quota>>30))
 			return
 		}
-		// Accept up to remaining quota bytes
-		r.Body = http.MaxBytesReader(w, r.Body, remaining+4096)
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			jsonErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — you have %.1f GB remaining", float64(remaining)/(1<<30)))
+
+		r.Body = http.MaxBytesReader(w, r.Body, remaining+(8<<20))
+		mr, err := r.MultipartReader()
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid multipart form")
 			return
 		}
-		file, header, err := r.FormFile("file")
-		if err != nil {
+
+		var (
+			dirID        string
+			fid          string
+			originalName string
+			mimeType     string
+			size         int64
+			haveFile     bool
+		)
+
+		userDir := filepath.Join(accountsDir, user.ID)
+		os.MkdirAll(userDir, 0o755)
+
+		for {
+			part, partErr := mr.NextPart()
+			if partErr == io.EOF {
+				break
+			}
+			if partErr != nil {
+				if fid != "" {
+					os.Remove(filepath.Join(userDir, fid))
+				}
+				jsonErr(w, http.StatusBadRequest, "failed to parse upload stream")
+				return
+			}
+
+			switch part.FormName() {
+			case "dirId":
+				raw, readErr := io.ReadAll(io.LimitReader(part, 1<<20))
+				part.Close()
+				if readErr != nil {
+					if fid != "" {
+						os.Remove(filepath.Join(userDir, fid))
+					}
+					jsonErr(w, http.StatusBadRequest, "invalid form field")
+					return
+				}
+				dirID = strings.TrimSpace(string(raw))
+
+			case "file":
+				if haveFile {
+					part.Close()
+					if fid != "" {
+						os.Remove(filepath.Join(userDir, fid))
+					}
+					jsonErr(w, http.StatusBadRequest, "only one file is allowed")
+					return
+				}
+				if part.FileName() == "" {
+					part.Close()
+					jsonErr(w, http.StatusBadRequest, "no file provided")
+					return
+				}
+
+				fid = randHex(12)
+				originalName = part.FileName()
+				mimeType = part.Header.Get("Content-Type")
+
+				dst, createErr := os.Create(filepath.Join(userDir, fid))
+				if createErr != nil {
+					part.Close()
+					jsonErr(w, http.StatusInternalServerError, "failed to create file")
+					return
+				}
+
+				limitReader := &io.LimitedReader{R: part, N: remaining + 1}
+				size, err = io.Copy(dst, limitReader)
+				dst.Close()
+				part.Close()
+				if err != nil {
+					os.Remove(filepath.Join(userDir, fid))
+					jsonErr(w, http.StatusInternalServerError, "failed to write file")
+					return
+				}
+				if limitReader.N == 0 {
+					os.Remove(filepath.Join(userDir, fid))
+					jsonErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — you have %.1f GB remaining", float64(remaining)/(1<<30)))
+					return
+				}
+				haveFile = true
+
+			default:
+				io.Copy(io.Discard, io.LimitReader(part, 1<<20))
+				part.Close()
+			}
+		}
+
+		if !haveFile {
 			jsonErr(w, http.StatusBadRequest, "no file provided")
 			return
 		}
-		defer file.Close()
 
-		// Re-check quota against declared file size
-		if header.Size > 0 && used+header.Size > quota {
-			jsonErr(w, http.StatusForbidden, fmt.Sprintf("file too large — you have %.1f GB remaining", float64(remaining)/(1<<30)))
-			return
-		}
-
-		dirID := r.FormValue("dirId")
 		if dirID != "" {
 			storageMu.RLock()
 			d, ok := dirs[dirID]
 			storageMu.RUnlock()
 			if !ok || d.UserID != user.ID {
+				os.Remove(filepath.Join(userDir, fid))
 				jsonErr(w, http.StatusBadRequest, "folder not found")
 				return
 			}
 		}
 
-		fid := randHex(12)
-		userDir := filepath.Join(accountsDir, user.ID)
-		os.MkdirAll(userDir, 0o755)
-
-		dst, err := os.Create(filepath.Join(userDir, fid))
-		if err != nil {
-			jsonErr(w, http.StatusInternalServerError, "failed to create file")
-			return
-		}
-		defer dst.Close()
-
-		size, err := io.Copy(dst, file)
-		if err != nil {
-			os.Remove(filepath.Join(userDir, fid))
-			jsonErr(w, http.StatusInternalServerError, "failed to write file")
-			return
-		}
-
-		// Final quota check after actual write
 		if used+size > quota {
 			os.Remove(filepath.Join(userDir, fid))
-			authMu.Lock()
-			user.StorageUsed -= 0 // nothing added yet
-			authMu.Unlock()
 			jsonErr(w, http.StatusForbidden, fmt.Sprintf("storage quota exceeded — limit is %d GB", quota>>30))
 			return
 		}
@@ -1000,10 +1117,10 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			ID:           fid,
 			UserID:       user.ID,
 			DirID:        dirID,
-			OriginalName: header.Filename,
+			OriginalName: originalName,
 			Size:         size,
 			UploadedAt:   time.Now(),
-			MimeType:     header.Header.Get("Content-Type"),
+			MimeType:     mimeType,
 		}
 		storageMu.Lock()
 		accFiles[fid] = af
@@ -1012,7 +1129,7 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 		user.StorageUsed += size
 		authMu.Unlock()
 
-		log.Printf("account-upload user=%s file=%q size=%d", user.Username, header.Filename, size)
+		log.Printf("account-upload user=%s file=%q size=%d", user.Username, originalName, size)
 		jsonOK(w, af)
 
 	case http.MethodPut:
