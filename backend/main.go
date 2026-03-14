@@ -28,7 +28,7 @@ const (
 	uploadDir            = "uploads"
 	accountsDir          = "uploads/accounts"
 	dataFile             = "data/state.json"
-	listenAddr           = ":8080"
+	listenAddr           = ":8085"
 	codeChars            = "abcdefghijkmnpqrstuvwxyz23456789"
 	tokenExpiry          = 30 * 24 * time.Hour
 )
