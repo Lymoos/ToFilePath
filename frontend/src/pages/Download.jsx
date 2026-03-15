@@ -59,6 +59,9 @@ export default function Download() {
   const [password, setPassword] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [dlProgress, setDlProgress] = useState(0)
+  const [dlSpeed, setDlSpeed] = useState(0)
+  const [dlETA, setDlETA] = useState(0)
   const countdown = useCountdown(fileInfo?.expiresAt)
 
   const fetchInfo = useCallback(() => {
@@ -77,51 +80,79 @@ export default function Download() {
 
   useEffect(() => { fetchInfo() }, [fetchInfo])
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (fileInfo.hasPassword && !password) {
       setPasswordError('Please enter the password')
       return
     }
     setDownloading(true)
     setPasswordError('')
+    setDlProgress(0)
+    setDlSpeed(0)
+    setDlETA(0)
 
-    try {
-      const qs = fileInfo.hasPassword ? `?password=${encodeURIComponent(password)}` : ''
-      const resp = await fetch(`${API}/api/download/${code}${qs}`)
+    const qs = fileInfo.hasPassword ? `?password=${encodeURIComponent(password)}` : ''
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', `${API}/api/download/${code}${qs}`)
+    xhr.responseType = 'blob'
 
-      if (resp.status === 401) {
+    let startTime = null
+    let lastLoaded = 0
+    let lastTime = null
+
+    xhr.onprogress = (e) => {
+      if (!startTime) { startTime = Date.now(); lastTime = startTime; lastLoaded = 0 }
+      const now = Date.now()
+      const elapsed = (now - lastTime) / 1000
+      if (elapsed > 0.2) {
+        const delta = e.loaded - lastLoaded
+        const speed = delta / elapsed
+        setDlSpeed(speed)
+        if (e.lengthComputable && speed > 0) {
+          const remaining = (e.total - e.loaded) / speed
+          setDlETA(remaining)
+        }
+        lastLoaded = e.loaded
+        lastTime = now
+      }
+      if (e.lengthComputable) {
+        setDlProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+
+    xhr.onload = () => {
+      if (xhr.status === 401) {
         setPasswordError('Wrong password — try again')
         setDownloading(false)
         return
       }
-      if (resp.status === 403) {
+      if (xhr.status === 403) {
         setPasswordError('Download limit has been reached')
         setDownloading(false)
         return
       }
-      if (!resp.ok) {
+      if (xhr.status !== 200) {
         setPasswordError('Download failed — file may have expired')
         setDownloading(false)
         return
       }
-
-      // Stream to blob and trigger download
-      const blob = await resp.blob()
-      const url = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(xhr.response)
       const a = document.createElement('a')
       a.href = url
       a.download = fileInfo.originalName
       document.body.appendChild(a)
       a.click()
       setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 1000)
-
-      // Refresh info to update download count
       setDownloading(false)
       fetchInfo()
-    } catch {
+    }
+
+    xhr.onerror = () => {
       setPasswordError('Download failed — check your connection')
       setDownloading(false)
     }
+
+    xhr.send()
   }
 
   const dlsLeft = fileInfo?.maxDownloads > 0
@@ -280,7 +311,10 @@ export default function Download() {
             disabled={downloading}
           >
             {downloading ? (
-              <><span className="spinner" /> Preparing download…</>
+              <>
+                <span className="spinner" />
+                {dlProgress > 0 ? `Downloading… ${dlProgress}%` : 'Preparing download…'}
+              </>
             ) : (
               <>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -292,6 +326,24 @@ export default function Download() {
               </>
             )}
           </button>
+        )}
+
+        {/* Download progress bar */}
+        {downloading && dlProgress > 0 && (
+          <div style={{ marginTop: '1rem' }}>
+            <div className="progress-wrap">
+              <div className="progress-bar" style={{ width: `${dlProgress}%` }} />
+            </div>
+            <div className="upload-speed-row">
+              <span className="progress-label">{dlProgress}%</span>
+              {dlSpeed > 0 && (
+                <span className="progress-label">
+                  {formatBytes(dlSpeed)}/s
+                  {dlETA > 0 && ` · ${dlETA < 60 ? `${Math.ceil(dlETA)}s` : `${Math.ceil(dlETA / 60)}m`} left`}
+                </span>
+              )}
+            </div>
+          </div>
         )}
 
         <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
