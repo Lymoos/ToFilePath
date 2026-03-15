@@ -2551,6 +2551,141 @@ input:-webkit-autofill:active {
 .admin-user-storage { color: var(--green); font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
 .admin-user-date { color: var(--text-dim); font-size: 0.75rem; white-space: nowrap; }
 
+/* ── Admin: Anonymous files table ───────────────────────────── */
+.admin-files-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.admin-files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.825rem;
+}
+
+.admin-files-table thead tr {
+  border-bottom: 1px solid var(--border-hi);
+}
+
+.admin-files-table th {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  background: rgba(255,255,255,0.02);
+}
+
+.admin-files-table tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.admin-files-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.admin-files-table tbody tr:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.admin-files-table td {
+  padding: 0.55rem 0.75rem;
+  vertical-align: middle;
+}
+
+.admin-files-name {
+  max-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-files-fname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.admin-files-lock {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.admin-files-size {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.admin-files-date {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.admin-files-dl {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  text-align: center;
+}
+
+.admin-files-exp {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-align: center;
+}
+.admin-files-exp.green { color: var(--green); }
+.admin-files-exp.yellow { color: var(--yellow); }
+.admin-files-exp.red { color: var(--red); }
+
+.admin-files-link {
+  max-width: 110px;
+}
+
+.admin-files-link-btn {
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  text-decoration: none;
+  opacity: 0.8;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.admin-files-link-btn:hover { opacity: 1; text-decoration: underline; }
+
+.admin-files-actions {
+  width: 36px;
+  text-align: center;
+}
+
+.admin-files-del-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.admin-files-del-btn:hover {
+  background: rgba(255,59,59,0.12);
+  border-color: var(--red);
+  color: var(--red);
+}
+.admin-files-del-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ══════════════════════════════════════════════════════════════
    MOBILE NAVBAR / HAMBURGER MENU
    ══════════════════════════════════════════════════════════════ */

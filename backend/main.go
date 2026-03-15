@@ -771,6 +771,60 @@ func adminStatsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/admin/files  — list all anonymous uploads
+// DELETE /api/admin/files/{code}  — delete an anonymous upload
+func adminFilesHandler(w http.ResponseWriter, r *http.Request) {
+	user := authFromRequest(r)
+	if user == nil || !user.IsAdmin {
+		jsonErr(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	code := strings.TrimPrefix(r.URL.Path, "/api/admin/files/")
+	code = strings.TrimPrefix(code, "/api/admin/files")
+	code = strings.Trim(code, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		mu.RLock()
+		list := make([]*FileRecord, 0, len(records))
+		for _, rec := range records {
+			list = append(list, rec)
+		}
+		mu.RUnlock()
+		// Sort by upload date descending (newest first)
+		for i := 1; i < len(list); i++ {
+			for j := i; j > 0 && list[j].UploadedAt.After(list[j-1].UploadedAt); j-- {
+				list[j], list[j-1] = list[j-1], list[j]
+			}
+		}
+		jsonOK(w, list)
+
+	case http.MethodDelete:
+		if code == "" {
+			jsonErr(w, http.StatusBadRequest, "missing file code")
+			return
+		}
+		mu.Lock()
+		rec, ok := records[code]
+		if ok {
+			delete(records, code)
+		}
+		mu.Unlock()
+		if !ok {
+			jsonErr(w, http.StatusNotFound, "file not found")
+			return
+		}
+		_ = rec
+		os.Remove(filepath.Join(uploadDir, code))
+		saveState()
+		jsonOK(w, map[string]string{"status": "deleted"})
+
+	default:
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // ─── Storage: Directories ─────────────────────────────────────────────────────
 
 func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1549,6 +1603,8 @@ func main() {
 
 	// Admin
 	mux.HandleFunc("/api/admin/stats", cors(adminStatsHandler))
+	mux.HandleFunc("/api/admin/files", cors(adminFilesHandler))
+	mux.HandleFunc("/api/admin/files/", cors(adminFilesHandler))
 
 	// Storage
 	mux.HandleFunc("/api/storage/dirs", cors(storageDirsHandler))

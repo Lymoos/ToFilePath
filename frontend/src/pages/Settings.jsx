@@ -79,6 +79,8 @@ export default function Settings() {
   const [tab, setTab] = useState('account')
   const [stats, setStats] = useState(null)
   const [adminData, setAdminData] = useState(null)
+  const [anonFiles, setAnonFiles] = useState(null)
+  const [deletingCode, setDeletingCode] = useState(null)
 
   // Account fields
   const [newEmail, setNewEmail]         = useState('')
@@ -110,7 +112,22 @@ export default function Settings() {
       fetch('/api/admin/stats', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.json()).then(setAdminData).catch(() => {})
     }
-  }, [tab, user, token, adminData])
+    if (tab === 'admin' && user?.isAdmin && !anonFiles) {
+      fetch('/api/admin/files', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(setAnonFiles).catch(() => {})
+    }
+  }, [tab, user, token, adminData, anonFiles])
+
+  const deleteAnonFile = async (code) => {
+    setDeletingCode(code)
+    await fetch(`/api/admin/files/${code}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    setAnonFiles(prev => prev ? prev.filter(f => f.shortCode !== code) : prev)
+    setAdminData(prev => prev ? { ...prev, anonFiles: (prev.anonFiles || 1) - 1 } : prev)
+    setDeletingCode(null)
+  }
 
   // Apply compact / no-anim globally
   useEffect(() => {
@@ -446,6 +463,73 @@ export default function Settings() {
                         </div>
                       ))}
                     </div>
+                  </SCard>
+
+                  <SCard title="Anonymous Files">
+                    {anonFiles === null ? (
+                      <div className="settings-loading" />
+                    ) : anonFiles.length === 0 ? (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center', padding: '1rem 0' }}>
+                        No anonymous files uploaded yet.
+                      </p>
+                    ) : (
+                      <div className="admin-files-table-wrap">
+                        <table className="admin-files-table">
+                          <thead>
+                            <tr>
+                              <th>File</th>
+                              <th>Size</th>
+                              <th>Uploaded</th>
+                              <th>Downloads</th>
+                              <th>Expires in</th>
+                              <th>Link</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {anonFiles.map(f => {
+                              const daysLeft = Math.ceil((new Date(f.expiresAt) - Date.now()) / 86400000)
+                              const isExpiringSoon = daysLeft <= 1
+                              const dlStr = f.maxDownloads > 0
+                                ? `${f.downloads} / ${f.maxDownloads}`
+                                : String(f.downloads)
+                              const link = `${window.location.origin}/d/${f.shortCode}`
+                              return (
+                                <tr key={f.shortCode}>
+                                  <td className="admin-files-name">
+                                    <span className="admin-files-fname">{f.originalName}</span>
+                                    {f.hasPassword && <span className="admin-files-lock" title="Password protected">🔒</span>}
+                                  </td>
+                                  <td className="admin-files-size">{formatBytes(f.size)}</td>
+                                  <td className="admin-files-date">
+                                    {new Date(f.uploadedAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                                  </td>
+                                  <td className="admin-files-dl">{dlStr}</td>
+                                  <td className={`admin-files-exp ${isExpiringSoon ? 'red' : daysLeft <= 3 ? 'yellow' : 'green'}`}>
+                                    {daysLeft <= 0 ? 'Expired' : `${daysLeft}d`}
+                                  </td>
+                                  <td className="admin-files-link">
+                                    <a href={link} target="_blank" rel="noreferrer" className="admin-files-link-btn">
+                                      /{f.shortCode}
+                                    </a>
+                                  </td>
+                                  <td className="admin-files-actions">
+                                    <button
+                                      className="admin-files-del-btn"
+                                      onClick={() => deleteAnonFile(f.shortCode)}
+                                      disabled={deletingCode === f.shortCode}
+                                      title="Delete file"
+                                    >
+                                      {deletingCode === f.shortCode ? <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> : '✕'}
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </SCard>
                 </>
               ) : (
