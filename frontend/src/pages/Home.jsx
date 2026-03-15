@@ -179,7 +179,7 @@ const DL_OPTIONS = [
   { key: 'home.dl50',        value: 50 },
 ]
 
-const ANON_LIMIT = 1 * 1024 * 1024 * 1024 // 1 GB
+const ANON_LIMIT = 3 * 1024 * 1024 * 1024 // 3 GB
 
 const FEATURES = [
   {
@@ -412,7 +412,7 @@ export default function Home() {
         </h1>
 
         <p className="hero-sub">
-          {tr('home.heroSub1')}&nbsp;<strong>1&nbsp;GB</strong> {tr('home.heroSub2')}{' '}
+          {tr('home.heroSub1')}&nbsp;<strong>3&nbsp;GB</strong> {tr('home.heroSub2')}{' '}
           <Link to="/login?mode=register" style={{ color:'var(--green)' }}>{tr('home.createFreeAccount')}</Link>{' '}
           {tr('home.heroSub3')}
         </p>

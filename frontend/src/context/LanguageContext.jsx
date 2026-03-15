@@ -44,6 +44,9 @@ const T = {
     'storage.signOut':        'Sign out',
     'storage.dropToUpload':   'Drop files to upload',
     'storage.uploading':      'Uploading {n} {word}…',
+    'storage.uploadErrFailed':  'Upload failed — please try again',
+    'storage.uploadErrConn':    'Connection lost during upload',
+    'storage.uploadErrTooLarge':'File exceeds your remaining storage quota',
     'storage.file':           'file',
     'storage.files':          'files',
     'storage.settings':       'Settings',
@@ -71,7 +74,7 @@ const T = {
     'storage.noResults':      'No results found',
     'storage.noResultsSub':   'No files or folders matching "{q}"',
     // Home – hero
-    'home.badge':          'Up to 1 GB\u00b7 No account needed \u00b7 Up to 5 GB with account',
+    'home.badge':          'Up to 3 GB\u00b7 No account needed \u00b7 Up to 5 GB with account',
     'home.heroLine':       'Drop it. Share it.',
     'home.word0':          'Securely.',
     'home.word1':          'Privately.',
@@ -84,11 +87,11 @@ const T = {
     // Home – drop zone
     'home.readyToUpload':  'Ready to upload',
     'home.dragDrop':       'Drag\u00a0& drop your file here',
-    'home.orClickBrowse':  'or click to browse \u2014 up to 1 GB',
+    'home.orClickBrowse':  'or click to browse \u2014 up to 3 GB',
     'home.fileTypes':      'Archives, videos, images, documents \u2014 anything goes',
     // Home – need account
-    'home.fileExceeds':    'File exceeds 1 GB',
-    'home.anonLimitText':  'Anonymous uploads are limited to 1\u00a0GB. Create a free account to upload up to 5\u00a0GB.',
+    'home.fileExceeds':    'File exceeds 3 GB',
+    'home.anonLimitText':  'Anonymous uploads are limited to 3\u00a0GB. Create a free account to upload up to 5\u00a0GB.',
     'home.createAccount':  'Create Account',
     // Home – options
     'home.advancedOptions':    'Advanced options',
@@ -107,7 +110,7 @@ const T = {
     'home.uploading':     'Uploading\u2026',
     'home.uploadFailed':  'Upload failed — please try again',
     'home.uploadConnErr': 'Connection lost during upload — please try again',
-    'home.fileTooLarge':  'File exceeds the 1\u00a0GB limit',
+    'home.fileTooLarge':  'File exceeds the 3\u00a0GB limit',
     'home.speedLabel': 'Speed:',
     'home.etaLabel':   'ETA:',
     // Home – success card
@@ -124,7 +127,7 @@ const T = {
     'home.whyTitle': "Everything you need, nothing you don\u2019t",
     'home.whySub':   'No accounts, no tracking, no nonsense.',
     'home.feat0.title': 'Instant uploads',
-    'home.feat0.desc':  'Upload any file up to 1 GB and get a shareable link in seconds. No sign-up.',
+    'home.feat0.desc':  'Upload any file up to 3 GB and get a shareable link in seconds. No sign-up.',
     'home.feat1.title': 'Self-destructing links',
     'home.feat1.desc':  'Set expiry from 1 hour to 30 days. Files vanish automatically.',
     'home.feat2.title': 'Password protection',
@@ -229,6 +232,9 @@ const T = {
     'storage.signOut':        'Выйти',
     'storage.dropToUpload':   'Перетащите файлы для загрузки',
     'storage.uploading':      'Загрузка {n} {word}…',
+    'storage.uploadErrFailed':  'Ошибка загрузки — попробуйте ещё раз',
+    'storage.uploadErrConn':    'Соединение прервано при загрузке',
+    'storage.uploadErrTooLarge':'Файл превышает доступное место',
     'storage.file':           'файл',
     'storage.files':          'файлов',
     'storage.settings':       'Настройки',
@@ -256,7 +262,7 @@ const T = {
     'storage.noResults':      'Ничего не найдено',
     'storage.noResultsSub':   'Файлов и папок с именем "{q}" нет',
     // Home – hero
-    'home.badge':          'До 1 ГБ \u00b7 Без регистрации \u00b7 До 5 ГБ с аккаунтом',
+    'home.badge':          'До 3 ГБ \u00b7 Без регистрации \u00b7 До 5 ГБ с аккаунтом',
     'home.heroLine':       'Загрузи. Поделись.',
     'home.word0':          'Безопасно.',
     'home.word1':          'Приватно.',
@@ -269,11 +275,11 @@ const T = {
     // Home – drop zone
     'home.readyToUpload':  'Готово к загрузке',
     'home.dragDrop':       'Перетащите файл сюда',
-    'home.orClickBrowse':  'или нажмите для выбора \u2014 до 1 ГБ',
+    'home.orClickBrowse':  'или нажмите для выбора \u2014 до 3 ГБ',
     'home.fileTypes':      'Архивы, видео, изображения, документы \u2014 всё что угодно',
     // Home – need account
-    'home.fileExceeds':    'Файл больше 1 ГБ',
-    'home.anonLimitText':  'Анонимная загрузка ограничена 1\u00a0ГБ. Создайте аккаунт для загрузки до 5\u00a0ГБ.',
+    'home.fileExceeds':    'Файл больше 3 ГБ',
+    'home.anonLimitText':  'Анонимная загрузка ограничена 3\u00a0ГБ. Создайте аккаунт для загрузки до 5\u00a0ГБ.',
     'home.createAccount':  'Создать аккаунт',
     // Home – options
     'home.advancedOptions':    'Дополнительные параметры',
@@ -292,7 +298,7 @@ const T = {
     'home.uploading':     'Загружаю\u2026',
     'home.uploadFailed':  'Ошибка загрузки — попробуйте ещё раз',
     'home.uploadConnErr': 'Соединение прервано — попробуйте ещё раз',
-    'home.fileTooLarge':  'Файл превышает лимит 1\u00a0ГБ',
+    'home.fileTooLarge':  'Файл превышает лимит 3\u00a0ГБ',
     'home.speedLabel': 'Скорость:',
     'home.etaLabel':   'Осталось:',
     // Home – success card
@@ -309,7 +315,7 @@ const T = {
     'home.whyTitle': 'Всё что нужно, ничего лишнего',
     'home.whySub':   'Без аккаунтов, слежки и лишних сложностей.',
     'home.feat0.title': 'Мгновенная загрузка',
-    'home.feat0.desc':  'Загрузите любой файл до 1 ГБ и получите ссылку за секунды. Без регистрации.',
+    'home.feat0.desc':  'Загрузите любой файл до 3 ГБ и получите ссылку за секунды. Без регистрации.',
     'home.feat1.title': 'Самоуничтожающиеся ссылки',
     'home.feat1.desc':  'Срок действия от 1 часа до 30 дней. Файлы исчезают автоматически.',
     'home.feat2.title': 'Защита паролем',

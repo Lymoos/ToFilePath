@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	maxAnonUploadSize    = 1 << 30         // 1 GB — anonymous uploads
+	maxAnonUploadSize    = 3 << 30         // 3 GB — anonymous uploads
 	maxAccountUploadSize = 10 << 30        // 10 GB — max body for account uploads (admin ceiling)
 	userStorageLimit     = int64(5) << 30  // 5 GB per regular account
 	adminStorageLimit    = int64(10) << 30 // 10 GB for admin account
@@ -229,7 +229,11 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxAnonUploadSize+(8<<20))
+	// Use a plain LimitedReader instead of MaxBytesReader to avoid Go's
+	// automatic plain-text 413 response, which breaks JSON error parsing in
+	// the frontend.  The inner per-part LimitedReader enforces the actual
+	// size limit and returns a proper JSON error.
+	r.Body = io.NopCloser(io.LimitReader(r.Body, maxAnonUploadSize+(8<<20)))
 	mr, err := r.MultipartReader()
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid multipart form")
@@ -999,7 +1003,8 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		r.Body = http.MaxBytesReader(w, r.Body, remaining+(8<<20))
+		// Same rationale as uploadHandler: avoid auto plain-text 413.
+		r.Body = io.NopCloser(io.LimitReader(r.Body, remaining+(8<<20)))
 		mr, err := r.MultipartReader()
 		if err != nil {
 			jsonErr(w, http.StatusBadRequest, "invalid multipart form")
