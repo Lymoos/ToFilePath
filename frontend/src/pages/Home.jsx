@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, useId } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../context/AuthContext'
@@ -214,6 +214,61 @@ const FEATURES = [
   },
 ]
 
+/* ── Custom select dropdown ───────────────────────── */
+function CustomSelect({ value, onChange, options }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const selected = options.find(o => o.value === value) ?? options[0]
+
+  return (
+    <div ref={ref} className={`custom-select${open ? ' open' : ''}`}>
+      <button
+        type="button"
+        className="custom-select-trigger"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+      >
+        <span>{selected?.label}</span>
+        <svg
+          className="custom-select-arrow"
+          width="14" height="14" viewBox="0 0 24 24" fill="none"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="custom-select-menu" role="listbox">
+          {options.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              role="option"
+              aria-selected={o.value === value}
+              className={`custom-select-option${o.value === value ? ' selected' : ''}`}
+              onClick={() => { onChange(o.value); setOpen(false) }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── Main component ───────────────────────────────── */
 export default function Home() {
   const { user } = useAuth()
@@ -296,13 +351,19 @@ export default function Home() {
       setUploading(false); setUploadSpeed(null); setUploadETA(null)
       if (xhr.status === 200) { setResult(JSON.parse(xhr.responseText)); setProgress(100) }
       else {
-        try { showToast(JSON.parse(xhr.responseText).error || tr('home.uploading')) }
-        catch { showToast(tr('home.uploading')) }
+        let msg
+        try { msg = JSON.parse(xhr.responseText).error } catch {}
+        if (!msg) {
+          if (xhr.status === 413) msg = tr('home.fileTooLarge')
+          else if (xhr.status === 0 || xhr.responseText === '') msg = tr('home.uploadConnErr')
+          else msg = tr('home.uploadFailed')
+        }
+        showToast(msg)
       }
     })
     xhr.addEventListener('error', () => {
       setUploading(false); setUploadSpeed(null); setUploadETA(null)
-      showToast('Network error — is the server running?')
+      showToast(tr('home.uploadConnErr'))
     })
     xhr.send(form)
   }
@@ -440,17 +501,19 @@ export default function Home() {
                 <div className="options-grid">
                   <div className="option-group">
                     <label>{tr('home.expiresAfter')}</label>
-                    <select value={options.expiryHours}
-                      onChange={e => setOptions(o => ({ ...o, expiryHours: Number(e.target.value) }))}>
-                      {EXPIRY_OPTIONS.map(o => <option key={o.value} value={o.value}>{tr(o.key)}</option>)}
-                    </select>
+                    <CustomSelect
+                      value={options.expiryHours}
+                      onChange={v => setOptions(o => ({ ...o, expiryHours: v }))}
+                      options={EXPIRY_OPTIONS.map(o => ({ value: o.value, label: tr(o.key) }))}
+                    />
                   </div>
                   <div className="option-group">
                     <label>{tr('home.downloadLimit')}</label>
-                    <select value={options.maxDownloads}
-                      onChange={e => setOptions(o => ({ ...o, maxDownloads: Number(e.target.value) }))}>
-                      {DL_OPTIONS.map(o => <option key={o.value} value={o.value}>{tr(o.key)}</option>)}
-                    </select>
+                    <CustomSelect
+                      value={options.maxDownloads}
+                      onChange={v => setOptions(o => ({ ...o, maxDownloads: v }))}
+                      options={DL_OPTIONS.map(o => ({ value: o.value, label: tr(o.key) }))}
+                    />
                   </div>
                 </div>
                 <div className="option-group">

@@ -1,8 +1,7 @@
 name: CI/CD
 
 on:
-  push:
-    branches: [main]
+  push:           # Run tests on every branch push
   pull_request:
     branches: [main]
 
@@ -50,6 +49,7 @@ jobs:
     name: Deploy to production
     needs: build
     runs-on: ubuntu-latest
+    # Only deploy on direct pushes to main — never on PRs or other branches
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:

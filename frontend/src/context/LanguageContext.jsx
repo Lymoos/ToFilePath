@@ -103,8 +103,11 @@ const T = {
     'home.dl1':  '1 download',   'home.dl5':  '5 downloads',
     'home.dl10': '10 downloads', 'home.dl25': '25 downloads', 'home.dl50': '50 downloads',
     // Home – upload button + progress
-    'home.uploadBtn':  'Upload\u00a0& Generate Link',
-    'home.uploading':  'Uploading\u2026',
+    'home.uploadBtn':     'Upload\u00a0& Generate Link',
+    'home.uploading':     'Uploading\u2026',
+    'home.uploadFailed':  'Upload failed — please try again',
+    'home.uploadConnErr': 'Connection lost during upload — please try again',
+    'home.fileTooLarge':  'File exceeds the 1\u00a0GB limit',
     'home.speedLabel': 'Speed:',
     'home.etaLabel':   'ETA:',
     // Home – success card
@@ -285,8 +288,11 @@ const T = {
     'home.dl1':  '1 скачивание',   'home.dl5':  '5 скачиваний',
     'home.dl10': '10 скачиваний', 'home.dl25': '25 скачиваний', 'home.dl50': '50 скачиваний',
     // Home – upload button + progress
-    'home.uploadBtn':  'Загрузить\u00a0и создать ссылку',
-    'home.uploading':  'Загружаю\u2026',
+    'home.uploadBtn':     'Загрузить\u00a0и создать ссылку',
+    'home.uploading':     'Загружаю\u2026',
+    'home.uploadFailed':  'Ошибка загрузки — попробуйте ещё раз',
+    'home.uploadConnErr': 'Соединение прервано — попробуйте ещё раз',
+    'home.fileTooLarge':  'Файл превышает лимит 1\u00a0ГБ',
     'home.speedLabel': 'Скорость:',
     'home.etaLabel':   'Осталось:',
     // Home – success card

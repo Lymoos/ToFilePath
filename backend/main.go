@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -1520,17 +1521,8 @@ func main() {
 	go cleanup()
 	go persistLoop()
 
-	// Save state on SIGINT/SIGTERM so an orderly deployment never loses data.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-quit
-		log.Println("shutting down — saving state…")
-		if err := saveState(); err != nil {
-			log.Printf("persist: final save error: %v", err)
-		}
-		os.Exit(0)
-	}()
 
 	mux := http.NewServeMux()
 
@@ -1563,6 +1555,27 @@ func main() {
 
 	mux.Handle("/", spaHandler())
 
+	srv := &http.Server{
+		Addr:    listenAddr,
+		Handler: mux,
+	}
+
+	// Graceful shutdown: wait up to 10 minutes for ongoing uploads to complete.
+	go func() {
+		<-quit
+		log.Println("shutting down — saving state…")
+		if err := saveState(); err != nil {
+			log.Printf("persist: final save error: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("graceful shutdown error: %v", err)
+		}
+	}()
+
 	log.Printf("ToFilePath server → http://localhost%s", listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, mux))
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server: %v", err)
+	}
 }
