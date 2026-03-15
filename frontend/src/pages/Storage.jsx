@@ -577,6 +577,7 @@ export default function Storage() {
   const [showNewFolder, setShowNewFolder]   = useState(false)
   const [renameTarget, setRenameTarget]     = useState(null)
   const [uploadingFiles, setUploadingFiles] = useState([])
+  const [uploadError, setUploadError] = useState(null)
   const [dragOver, setDragOver]   = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
@@ -705,11 +706,23 @@ export default function Storage() {
           if (xhr.status === 200) {
             const nf = JSON.parse(xhr.responseText)
             if (nf.dirId === currentDir) setFiles(prev => [...prev, nf])
+          } else {
+            let msg
+            try { msg = JSON.parse(xhr.responseText).error } catch {}
+            if (!msg) msg = xhr.status === 413
+              ? tr('storage.uploadErrTooLarge')
+              : tr('storage.uploadErrFailed')
+            setUploadError(msg)
+            setTimeout(() => setUploadError(null), 4000)
           }
           setUploadingFiles(prev => prev.map((f,idx) => idx===i ? {...f, progress:100} : f))
           resolve()
         }
-        xhr.onerror = resolve
+        xhr.onerror = () => {
+          setUploadError(tr('storage.uploadErrConn'))
+          setTimeout(() => setUploadError(null), 4000)
+          resolve()
+        }
         const fd = new FormData()
         fd.append('file', item.file)
         fd.append('dirId', currentDir)
@@ -1124,6 +1137,19 @@ export default function Storage() {
       )}
 
       {uploadingFiles.length > 0 && <UploadToast files={uploadingFiles} tr={tr} />}
+
+      {uploadError && (
+        <div className="toast-container">
+          <div className="toast error">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+              <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            {uploadError}
+          </div>
+        </div>
+      )}
 
       {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
 
