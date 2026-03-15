@@ -709,9 +709,14 @@ export default function Storage() {
           } else {
             let msg
             try { msg = JSON.parse(xhr.responseText).error } catch {}
-            if (!msg) msg = xhr.status === 413
-              ? tr('storage.uploadErrTooLarge')
-              : tr('storage.uploadErrFailed')
+            if (!msg) {
+              if (xhr.status === 413) {
+                // Non-JSON 413 = proxy (nginx) rejected it before reaching Go
+                msg = tr('storage.uploadErrProxyLimit')
+              } else {
+                msg = tr('storage.uploadErrFailed')
+              }
+            }
             setUploadError(msg)
             setTimeout(() => setUploadError(null), 4000)
           }

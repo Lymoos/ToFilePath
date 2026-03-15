@@ -354,7 +354,9 @@ export default function Home() {
         let msg
         try { msg = JSON.parse(xhr.responseText).error } catch {}
         if (!msg) {
-          if (xhr.status === 413) msg = tr('home.fileTooLarge')
+          // Non-JSON 413 means a reverse proxy (nginx) rejected the request
+          // before it reached the Go server — its client_max_body_size is too low.
+          if (xhr.status === 413) msg = tr('home.uploadProxyLimit')
           else if (xhr.status === 0 || xhr.responseText === '') msg = tr('home.uploadConnErr')
           else msg = tr('home.uploadFailed')
         }
