@@ -7,6 +7,10 @@ services:
       - "8085:8085"
     volumes:
       - uploads:/app/uploads
+      - data:/app/data
+    # Allow up to 10 minutes for large ongoing uploads to finish before force-kill
+    stop_grace_period: 10m
 
 volumes:
   uploads:
+  data:
