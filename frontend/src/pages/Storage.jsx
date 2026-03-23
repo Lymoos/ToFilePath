@@ -124,12 +124,22 @@ function PencilIcon() {
   )
 }
 
-function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, tr }) {
+function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, onShare, tr,
+                       dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop }) {
   const [confirm, setConfirm] = useState(false)
+  const isDropTarget = dropTarget === dir.id
   return (
-    <div className="storage-card folder-card">
+    <div
+      className={`storage-card folder-card${isDropTarget ? ' drop-target' : ''}${dragging ? ' dragging' : ''}`}
+      draggable
+      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
+      onDragEnd={onDragEnd}
+      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver() }}
+      onDragLeave={onDragLeave}
+      onDrop={e => { e.preventDefault(); onDrop() }}
+    >
       <button className="storage-card-main" onClick={onOpen}>
-        <div className="storage-card-icon folder-icon">📁</div>
+        <div className="storage-card-icon folder-icon">{isDropTarget ? '📂' : '📁'}</div>
         <div className="storage-card-info">
           <div className="storage-card-name">{dir.name}</div>
           <div className="storage-card-meta">{tr('storage.folder')} · {timeAgo(dir.createdAt, tr)}</div>
@@ -146,6 +156,15 @@ function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, tr }) {
             <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
           </svg>
           <span className="btn-label">ZIP</span>
+        </button>
+        <button className="card-action-btn" onClick={onShare} title={tr('storage.share')}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="2"/>
+            <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+            <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="2"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
         </button>
         {confirm ? (
           <>
@@ -167,7 +186,8 @@ function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, tr }) {
   )
 }
 
-function FileCard({ file, token, onDelete, onPreview, onRename, tr }) {
+function FileCard({ file, token, onDelete, onPreview, onRename, onShare, tr,
+                    dragging, onDragStart, onDragEnd }) {
   const [confirm, setConfirm] = useState(false)
   const previewable = canPreview(file.name)
 
@@ -187,7 +207,12 @@ function FileCard({ file, token, onDelete, onPreview, onRename, tr }) {
   }
 
   return (
-    <div className="storage-card file-card">
+    <div
+      className={`storage-card file-card${dragging ? ' dragging' : ''}`}
+      draggable
+      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
+      onDragEnd={onDragEnd}
+    >
       <div className="storage-card-main" style={{ cursor: previewable ? 'pointer' : 'default' }}
            onClick={previewable ? onPreview : undefined}>
         <div className="storage-card-icon">{fileEmoji(file.name)}</div>
@@ -216,6 +241,15 @@ function FileCard({ file, token, onDelete, onPreview, onRename, tr }) {
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <polyline points="7 10 12 15 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </button>
+        <button className="card-action-btn" onClick={onShare} title={tr('storage.share')}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="2"/>
+            <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+            <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="2"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
           </svg>
         </button>
         {confirm ? (
@@ -489,6 +523,147 @@ function PendingUploadModal({ file, allDirs, onClose, onUpload }) {
   )
 }
 
+// ── ShareModal ────────────────────────────────────────────────────────────────
+
+function ShareModal({ initialFiles, initialDirs, allFiles, allDirs, token, onClose, tr }) {
+  const [selFiles, setSelFiles] = useState(new Set(initialFiles.map(f => f.id)))
+  const [selDirs, setSelDirs] = useState(new Set(initialDirs.map(d => d.id)))
+  const [days, setDays] = useState(7)
+  const [title, setTitle] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [shareUrl, setShareUrl] = useState(null)
+  const [copied, setCopied] = useState(false)
+
+  const toggleFile = id => setSelFiles(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+  const toggleDir = id => setSelDirs(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
+  const handleCreate = async () => {
+    if (selFiles.size === 0 && selDirs.size === 0) return
+    setCreating(true)
+    const res = await fetch('/api/shares', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileIds: [...selFiles],
+        dirIds: [...selDirs],
+        title: title.trim(),
+        days,
+      }),
+    })
+    const data = await res.json()
+    setCreating(false)
+    if (res.ok) {
+      setShareUrl(`${window.location.origin}/p/${data.id}`)
+    }
+  }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal share-modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ marginRight: 8, verticalAlign: 'middle' }}>
+              <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="2"/>
+              <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+              <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="2"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            {tr('storage.shareLink')}
+          </h3>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        {shareUrl ? (
+          <div className="modal-body">
+            <div className="share-success">
+              <div className="share-success-icon">🎉</div>
+              <p style={{ marginBottom: '1rem', color: 'var(--text-muted)' }}>{tr('storage.shareLinkReady')}</p>
+              <div className="share-url-row">
+                <input type="text" className="share-url-input" readOnly value={shareUrl} onFocus={e => e.target.select()} />
+                <button className="btn btn-primary btn-sm" onClick={handleCopy}>
+                  {copied ? '✓' : tr('storage.copy')}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="modal-body">
+              <div className="auth-input-wrap" style={{ marginBottom: '1rem' }}>
+                <input
+                  type="text"
+                  placeholder={tr('storage.shareTitlePlaceholder')}
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  maxLength={64}
+                />
+              </div>
+
+              <div className="share-section-label">{tr('storage.shareFiles')}</div>
+              <div className="share-item-list">
+                {allFiles.map(f => (
+                  <label key={f.id} className="share-item">
+                    <input type="checkbox" checked={selFiles.has(f.id)} onChange={() => toggleFile(f.id)} />
+                    <span className="share-item-icon">{fileEmoji(f.name)}</span>
+                    <span className="share-item-name">{f.name}</span>
+                    <span className="share-item-size">{formatBytes(f.size)}</span>
+                  </label>
+                ))}
+                {allFiles.length === 0 && <div className="share-empty-hint">{tr('storage.noFilesHere')}</div>}
+              </div>
+
+              {allDirs.length > 0 && (
+                <>
+                  <div className="share-section-label" style={{ marginTop: '1rem' }}>{tr('storage.shareFolders')}</div>
+                  <div className="share-item-list">
+                    {allDirs.map(d => (
+                      <label key={d.id} className="share-item">
+                        <input type="checkbox" checked={selDirs.has(d.id)} onChange={() => toggleDir(d.id)} />
+                        <span className="share-item-icon">📁</span>
+                        <span className="share-item-name">{d.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="share-expiry-row">
+                <span>{tr('storage.expiresIn')}</span>
+                {[1, 3, 7, 14, 30].map(d => (
+                  <button key={d} className={`share-day-btn${days === d ? ' active' : ''}`} onClick={() => setDays(d)}>
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost btn-sm" onClick={onClose}>{tr('storage.cancel')}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleCreate}
+                disabled={creating || (selFiles.size === 0 && selDirs.size === 0)}
+              >
+                {creating ? <><span className="spinner" /> {tr('storage.creating')}</> : tr('storage.createLink')}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── FAB Component ─────────────────────────────────────────────────────────────
 
 function FAB({ onUploadFiles, onUploadFolder, onNewFolder, tr }) {
@@ -583,11 +758,18 @@ export default function Storage() {
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [previewFile, setPreviewFile] = useState(null)
 
-  // ── Idea 1: File search ───────────────────────────────────────
+  // ── Search ────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
 
-  // ── Idea 3: Grid / List view toggle ──────────────────────────
+  // ── Grid / List view toggle ───────────────────────────────────
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('tfp_view') || 'list')
+
+  // ── Drag-drop move ────────────────────────────────────────────
+  const [draggingItem, setDraggingItem] = useState(null) // { type: 'file'|'dir', id, name }
+  const [dropTargetDir, setDropTargetDir] = useState(null) // dirId being hovered
+
+  // ── Share ─────────────────────────────────────────────────────
+  const [shareModal, setShareModal] = useState(null) // { initialFiles: [], initialDirs: [] }
 
   const fileInputRef = useRef(null)
   const folderInputRef = useRef(null)
@@ -626,7 +808,7 @@ export default function Storage() {
     setLoadingContent(true)
     try {
       const [dirsRes, filesRes, statsRes] = await Promise.all([
-        http.get('/api/storage/dirs'),
+        http.get('/api/storage/dirs?all=1'),
         http.get(`/api/storage/files?dir=${currentDir}`),
         http.get('/api/storage/stats'),
       ])
@@ -669,6 +851,45 @@ export default function Storage() {
 
   const handleRenameFile = (updated) => {
     setFiles(prev => prev.map(f => f.id === updated.id ? { ...f, name: updated.name || f.name } : f))
+  }
+
+  // ── Move handlers (drag-drop) ─────────────────────────────────
+  const handleMoveFile = async (fileId, targetDirId) => {
+    const res = await http.put(`/api/storage/files/${fileId}`, { dirId: targetDirId })
+    if (res.ok) {
+      // remove from current view if moved to a different dir
+      setFiles(prev => prev.filter(f => f.id !== fileId))
+      loadAll()
+    }
+  }
+
+  const handleMoveDir = async (dirId, targetParentId) => {
+    const res = await http.put(`/api/storage/dirs/${dirId}`, { parentId: targetParentId })
+    if (res.ok) {
+      loadAll()
+    }
+  }
+
+  const handleDropOnDir = async (targetDirId) => {
+    if (!draggingItem) return
+    setDropTargetDir(null)
+    if (draggingItem.type === 'file') {
+      await handleMoveFile(draggingItem.id, targetDirId)
+    } else if (draggingItem.type === 'dir' && draggingItem.id !== targetDirId) {
+      await handleMoveDir(draggingItem.id, targetDirId)
+    }
+    setDraggingItem(null)
+  }
+
+  const handleDropOnRoot = async () => {
+    if (!draggingItem) return
+    setDropTargetDir(null)
+    if (draggingItem.type === 'file') {
+      await handleMoveFile(draggingItem.id, '')
+    } else if (draggingItem.type === 'dir') {
+      await handleMoveDir(draggingItem.id, '')
+    }
+    setDraggingItem(null)
   }
 
   const handleDownloadZip = (dir) => {
@@ -832,6 +1053,11 @@ export default function Storage() {
 
   const handleDrop = (e) => {
     e.preventDefault(); setDragOver(false)
+    // If we're moving an existing item to root
+    if (draggingItem && !e.dataTransfer.files?.length) {
+      handleDropOnRoot()
+      return
+    }
     if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files)
   }
 
@@ -1099,6 +1325,14 @@ export default function Storage() {
                   onDelete={() => handleDeleteDir(dir.id)}
                   onDownloadZip={() => handleDownloadZip(dir)}
                   onRename={() => setRenameTarget({ item: dir, type: 'dir' })}
+                  onShare={() => setShareModal({ initialFiles: [], initialDirs: [dir] })}
+                  dragging={draggingItem?.id === dir.id}
+                  dropTarget={dropTargetDir}
+                  onDragStart={() => setDraggingItem({ type: 'dir', id: dir.id, name: dir.name })}
+                  onDragEnd={() => { setDraggingItem(null); setDropTargetDir(null) }}
+                  onDragOver={() => { if (draggingItem?.id !== dir.id) setDropTargetDir(dir.id) }}
+                  onDragLeave={() => setDropTargetDir(null)}
+                  onDrop={() => handleDropOnDir(dir.id)}
                 />
               ))}
               {filteredFiles.map((file, i) => (
@@ -1106,6 +1340,10 @@ export default function Storage() {
                   onDelete={() => handleDeleteFile(file.id)}
                   onPreview={() => setPreviewFile(file)}
                   onRename={() => setRenameTarget({ item: file, type: 'file' })}
+                  onShare={() => setShareModal({ initialFiles: [file], initialDirs: [] })}
+                  dragging={draggingItem?.id === file.id}
+                  onDragStart={() => setDraggingItem({ type: 'file', id: file.id, name: file.name })}
+                  onDragEnd={() => { setDraggingItem(null); setDropTargetDir(null) }}
                 />
               ))}
             </div>
@@ -1157,6 +1395,18 @@ export default function Storage() {
       )}
 
       {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
+
+      {shareModal && (
+        <ShareModal
+          initialFiles={shareModal.initialFiles}
+          initialDirs={shareModal.initialDirs}
+          allFiles={files}
+          allDirs={currentSubDirs}
+          token={token}
+          tr={tr}
+          onClose={() => setShareModal(null)}
+        />
+      )}
 
       {showPendingUpload && pendingFile && (
         <PendingUploadModal

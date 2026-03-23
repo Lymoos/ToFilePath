@@ -84,6 +84,17 @@ type AccountFile struct {
 	MimeType     string    `json:"mimeType"`
 }
 
+type SharedLink struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	FileIDs   []string  `json:"fileIds"`
+	DirIDs    []string  `json:"dirIds"`
+	Title     string    `json:"title"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
+	Downloads int       `json:"downloads"`
+}
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 var (
@@ -99,6 +110,9 @@ var (
 	storageMu sync.RWMutex
 	dirs      = make(map[string]*Directory)
 	accFiles  = make(map[string]*AccountFile)
+
+	shareMu    sync.RWMutex
+	shareLinks = make(map[string]*SharedLink)
 )
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -852,6 +866,18 @@ func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		if r.URL.Query().Get("all") == "1" {
+			storageMu.RLock()
+			result := make([]*Directory, 0)
+			for _, d := range dirs {
+				if d.UserID == user.ID {
+					result = append(result, d)
+				}
+			}
+			storageMu.RUnlock()
+			jsonOK(w, result)
+			return
+		}
 		parentID := r.URL.Query().Get("parent")
 		storageMu.RLock()
 		result := make([]*Directory, 0)
@@ -904,16 +930,30 @@ func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
-			Name string `json:"name"`
+			Name     string  `json:"name"`
+			ParentID *string `json:"parentId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			jsonErr(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		body.Name = strings.TrimSpace(body.Name)
-		if body.Name == "" || len(body.Name) > 64 {
+		if body.Name != "" && len(body.Name) > 64 {
 			jsonErr(w, http.StatusBadRequest, "invalid folder name (1–64 chars)")
 			return
+		}
+		if body.ParentID != nil && *body.ParentID != "" {
+			if *body.ParentID == dirID {
+				jsonErr(w, http.StatusBadRequest, "cannot move folder into itself")
+				return
+			}
+			storageMu.RLock()
+			targetParent, pOk := dirs[*body.ParentID]
+			storageMu.RUnlock()
+			if !pOk || targetParent.UserID != user.ID {
+				jsonErr(w, http.StatusBadRequest, "target folder not found")
+				return
+			}
 		}
 		storageMu.Lock()
 		dir, ok := dirs[dirID]
@@ -922,7 +962,12 @@ func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusNotFound, "folder not found")
 			return
 		}
-		dir.Name = body.Name
+		if body.Name != "" {
+			dir.Name = body.Name
+		}
+		if body.ParentID != nil {
+			dir.ParentID = *body.ParentID
+		}
 		storageMu.Unlock()
 		jsonOK(w, dir)
 
@@ -1198,16 +1243,26 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
-			Name string `json:"name"`
+			Name  string  `json:"name"`
+			DirID *string `json:"dirId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			jsonErr(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		body.Name = strings.TrimSpace(body.Name)
-		if body.Name == "" || len(body.Name) > 256 {
+		if body.Name != "" && len(body.Name) > 256 {
 			jsonErr(w, http.StatusBadRequest, "invalid file name")
 			return
+		}
+		if body.DirID != nil && *body.DirID != "" {
+			storageMu.RLock()
+			targetDir, dOk := dirs[*body.DirID]
+			storageMu.RUnlock()
+			if !dOk || targetDir.UserID != user.ID {
+				jsonErr(w, http.StatusBadRequest, "target folder not found")
+				return
+			}
 		}
 		storageMu.Lock()
 		af, ok := accFiles[fileID]
@@ -1216,7 +1271,12 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusNotFound, "file not found")
 			return
 		}
-		af.OriginalName = body.Name
+		if body.Name != "" {
+			af.OriginalName = body.Name
+		}
+		if body.DirID != nil {
+			af.DirID = *body.DirID
+		}
 		storageMu.Unlock()
 		jsonOK(w, af)
 
@@ -1327,6 +1387,341 @@ func storageStatsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ─── Share Links ──────────────────────────────────────────────────────────────
+
+// POST /api/shares  — create a share link
+// GET  /api/shares  — list user's share links
+// DELETE /api/shares/{id} — delete a share link
+func shareLinksHandler(w http.ResponseWriter, r *http.Request) {
+	user := authFromRequest(r)
+	if user == nil {
+		jsonErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	shareID := strings.TrimPrefix(r.URL.Path, "/api/shares/")
+	shareID = strings.TrimPrefix(shareID, "/api/shares")
+	shareID = strings.Trim(shareID, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		shareMu.RLock()
+		result := make([]*SharedLink, 0)
+		for _, sl := range shareLinks {
+			if sl.UserID == user.ID {
+				result = append(result, sl)
+			}
+		}
+		shareMu.RUnlock()
+		jsonOK(w, result)
+
+	case http.MethodPost:
+		var body struct {
+			FileIDs []string `json:"fileIds"`
+			DirIDs  []string `json:"dirIds"`
+			Title   string   `json:"title"`
+			Days    int      `json:"days"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if len(body.FileIDs) == 0 && len(body.DirIDs) == 0 {
+			jsonErr(w, http.StatusBadRequest, "select at least one file or folder")
+			return
+		}
+		if body.Days < 1 || body.Days > 365 {
+			body.Days = 7
+		}
+		// Validate all fileIDs belong to user
+		storageMu.RLock()
+		for _, fid := range body.FileIDs {
+			af, ok := accFiles[fid]
+			if !ok || af.UserID != user.ID {
+				storageMu.RUnlock()
+				jsonErr(w, http.StatusBadRequest, "file not found: "+fid)
+				return
+			}
+		}
+		for _, did := range body.DirIDs {
+			d, ok := dirs[did]
+			if !ok || d.UserID != user.ID {
+				storageMu.RUnlock()
+				jsonErr(w, http.StatusBadRequest, "folder not found: "+did)
+				return
+			}
+		}
+		storageMu.RUnlock()
+
+		sl := &SharedLink{
+			ID:        randHex(8),
+			UserID:    user.ID,
+			FileIDs:   body.FileIDs,
+			DirIDs:    body.DirIDs,
+			Title:     strings.TrimSpace(body.Title),
+			ExpiresAt: time.Now().Add(time.Duration(body.Days) * 24 * time.Hour),
+			CreatedAt: time.Now(),
+		}
+		shareMu.Lock()
+		shareLinks[sl.ID] = sl
+		shareMu.Unlock()
+		saveState()
+		jsonOK(w, sl)
+
+	case http.MethodDelete:
+		if shareID == "" {
+			jsonErr(w, http.StatusBadRequest, "missing share id")
+			return
+		}
+		shareMu.Lock()
+		sl, ok := shareLinks[shareID]
+		if !ok || sl.UserID != user.ID {
+			shareMu.Unlock()
+			jsonErr(w, http.StatusNotFound, "share not found")
+			return
+		}
+		delete(shareLinks, shareID)
+		shareMu.Unlock()
+		saveState()
+		jsonOK(w, map[string]string{"status": "deleted"})
+
+	default:
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// publicShareInfo returns share metadata + file list without auth.
+// GET /api/p/{id}
+func publicShareHandler(w http.ResponseWriter, r *http.Request) {
+	shareID := strings.TrimPrefix(r.URL.Path, "/api/p/")
+	shareID = strings.Split(shareID, "/")[0]
+
+	shareMu.RLock()
+	sl, ok := shareLinks[shareID]
+	shareMu.RUnlock()
+	if !ok {
+		jsonErr(w, http.StatusNotFound, "share not found")
+		return
+	}
+	if time.Now().After(sl.ExpiresAt) {
+		jsonErr(w, http.StatusGone, "share has expired")
+		return
+	}
+
+	type fileInfo struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Size int64  `json:"size"`
+		Mime string `json:"mimeType"`
+	}
+	type dirInfo struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+
+	storageMu.RLock()
+	sharedFiles := make([]fileInfo, 0, len(sl.FileIDs))
+	for _, fid := range sl.FileIDs {
+		if af, ok := accFiles[fid]; ok {
+			sharedFiles = append(sharedFiles, fileInfo{ID: af.ID, Name: af.OriginalName, Size: af.Size, Mime: af.MimeType})
+		}
+	}
+	sharedDirs := make([]dirInfo, 0, len(sl.DirIDs))
+	for _, did := range sl.DirIDs {
+		if d, ok := dirs[did]; ok {
+			sharedDirs = append(sharedDirs, dirInfo{ID: d.ID, Name: d.Name})
+		}
+	}
+	storageMu.RUnlock()
+
+	var totalSize int64
+	for _, f := range sharedFiles {
+		totalSize += f.Size
+	}
+
+	jsonOK(w, map[string]any{
+		"id":        sl.ID,
+		"title":     sl.Title,
+		"expiresAt": sl.ExpiresAt,
+		"createdAt": sl.CreatedAt,
+		"downloads": sl.Downloads,
+		"files":     sharedFiles,
+		"dirs":      sharedDirs,
+		"totalSize": totalSize,
+	})
+}
+
+// publicShareDownloadHandler downloads a single file from a share.
+// GET /api/p/{id}/download/{fileId}
+func publicShareDownloadHandler(w http.ResponseWriter, r *http.Request) {
+	// path: /api/p/{shareId}/download/{fileId}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/p/")
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) < 3 {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	shareID := parts[0]
+	fileID := parts[2]
+
+	shareMu.RLock()
+	sl, ok := shareLinks[shareID]
+	shareMu.RUnlock()
+	if !ok || time.Now().After(sl.ExpiresAt) {
+		http.Error(w, "share not found or expired", http.StatusNotFound)
+		return
+	}
+
+	// Check fileID is in the share
+	allowed := false
+	for _, fid := range sl.FileIDs {
+		if fid == fileID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		http.Error(w, "file not in share", http.StatusForbidden)
+		return
+	}
+
+	storageMu.RLock()
+	af, fileOK := accFiles[fileID]
+	storageMu.RUnlock()
+	if !fileOK {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	f, err := os.Open(filepath.Join(accountsDir, af.UserID, fileID))
+	if err != nil {
+		http.Error(w, "file not found on disk", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+
+	shareMu.Lock()
+	sl.Downloads++
+	shareMu.Unlock()
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, af.OriginalName))
+	w.Header().Set("Content-Length", strconv.FormatInt(af.Size, 10))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	io.Copy(w, f)
+}
+
+// publicShareZipHandler streams a ZIP of all files/folders in a share.
+// GET /api/p/{id}/zip
+func publicShareZipHandler(w http.ResponseWriter, r *http.Request) {
+	shareID := strings.TrimPrefix(r.URL.Path, "/api/p/")
+	shareID = strings.Split(shareID, "/")[0]
+
+	shareMu.RLock()
+	sl, ok := shareLinks[shareID]
+	shareMu.RUnlock()
+	if !ok || time.Now().After(sl.ExpiresAt) {
+		http.Error(w, "share not found or expired", http.StatusNotFound)
+		return
+	}
+
+	title := sl.Title
+	if title == "" {
+		title = "shared"
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, title))
+
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	storageMu.RLock()
+	// Add individual shared files
+	for _, fid := range sl.FileIDs {
+		af, ok := accFiles[fid]
+		if !ok {
+			continue
+		}
+		fw, err := zw.Create(af.OriginalName)
+		if err != nil {
+			continue
+		}
+		fh, err := os.Open(filepath.Join(accountsDir, af.UserID, fid))
+		if err != nil {
+			continue
+		}
+		io.Copy(fw, fh)
+		fh.Close()
+	}
+
+	// Add shared directories recursively
+	var addDir func(dID, prefix string, ownerID string)
+	addDir = func(dID, prefix string, ownerID string) {
+		var filesToAdd []*AccountFile
+		var subDirs []*Directory
+		for _, f := range accFiles {
+			if f.UserID == ownerID && f.DirID == dID {
+				filesToAdd = append(filesToAdd, f)
+			}
+		}
+		for _, d := range dirs {
+			if d.UserID == ownerID && d.ParentID == dID {
+				subDirs = append(subDirs, d)
+			}
+		}
+		for _, f := range filesToAdd {
+			entryPath := f.OriginalName
+			if prefix != "" {
+				entryPath = prefix + "/" + f.OriginalName
+			}
+			fw, err := zw.Create(entryPath)
+			if err != nil {
+				continue
+			}
+			fh, err := os.Open(filepath.Join(accountsDir, ownerID, f.ID))
+			if err != nil {
+				continue
+			}
+			io.Copy(fw, fh)
+			fh.Close()
+		}
+		for _, d := range subDirs {
+			childPrefix := d.Name
+			if prefix != "" {
+				childPrefix = prefix + "/" + d.Name
+			}
+			addDir(d.ID, childPrefix, ownerID)
+		}
+	}
+
+	// Determine owner from first file or dir
+	ownerID := ""
+	for _, fid := range sl.FileIDs {
+		if af, ok := accFiles[fid]; ok {
+			ownerID = af.UserID
+			break
+		}
+	}
+	if ownerID == "" {
+		for _, did := range sl.DirIDs {
+			if d, ok := dirs[did]; ok {
+				ownerID = d.UserID
+				break
+			}
+		}
+	}
+
+	for _, did := range sl.DirIDs {
+		if d, ok := dirs[did]; ok {
+			addDir(d.ID, d.Name, ownerID)
+		}
+	}
+	storageMu.RUnlock()
+
+	shareMu.Lock()
+	sl.Downloads++
+	shareMu.Unlock()
+}
+
 // ─── Cleanup ──────────────────────────────────────────────────────────────────
 
 func cleanup() {
@@ -1346,6 +1741,13 @@ func cleanup() {
 			}
 		}
 		authMu.Unlock()
+		shareMu.Lock()
+		for id, sl := range shareLinks {
+			if time.Now().After(sl.ExpiresAt) {
+				delete(shareLinks, id)
+			}
+		}
+		shareMu.Unlock()
 	}
 }
 
@@ -1380,11 +1782,12 @@ type persistUser struct {
 }
 
 type persistData struct {
-	Records  []*persistFileRecord `json:"records"`
-	Users    []*persistUser       `json:"users"`
-	Sessions []*Session           `json:"sessions"`
-	Dirs     []*Directory         `json:"dirs"`
-	AccFiles []*AccountFile       `json:"accFiles"`
+	Records    []*persistFileRecord `json:"records"`
+	Users      []*persistUser       `json:"users"`
+	Sessions   []*Session           `json:"sessions"`
+	Dirs       []*Directory         `json:"dirs"`
+	AccFiles   []*AccountFile       `json:"accFiles"`
+	ShareLinks []*SharedLink        `json:"shareLinks"`
 }
 
 // saveState serialises all in-memory state to dataFile atomically.
@@ -1442,12 +1845,20 @@ func saveState() error {
 	}
 	storageMu.RUnlock()
 
+	shareMu.RLock()
+	pShareLinks := make([]*SharedLink, 0, len(shareLinks))
+	for _, sl := range shareLinks {
+		pShareLinks = append(pShareLinks, sl)
+	}
+	shareMu.RUnlock()
+
 	b, err := json.Marshal(&persistData{
-		Records:  pRecords,
-		Users:    pUsers,
-		Sessions: pSessions,
-		Dirs:     pDirs,
-		AccFiles: pAccFiles,
+		Records:    pRecords,
+		Users:      pUsers,
+		Sessions:   pSessions,
+		Dirs:       pDirs,
+		AccFiles:   pAccFiles,
+		ShareLinks: pShareLinks,
 	})
 	if err != nil {
 		return err
@@ -1533,8 +1944,16 @@ func loadState() error {
 	}
 	storageMu.Unlock()
 
-	log.Printf("state loaded: %d file records, %d users, %d sessions, %d dirs, %d account files",
-		len(data.Records), len(data.Users), len(data.Sessions), len(data.Dirs), len(data.AccFiles))
+	shareMu.Lock()
+	for _, sl := range data.ShareLinks {
+		if now.Before(sl.ExpiresAt) {
+			shareLinks[sl.ID] = sl
+		}
+	}
+	shareMu.Unlock()
+
+	log.Printf("state loaded: %d file records, %d users, %d sessions, %d dirs, %d account files, %d shares",
+		len(data.Records), len(data.Users), len(data.Sessions), len(data.Dirs), len(data.AccFiles), len(shareLinks))
 	return nil
 }
 
@@ -1613,6 +2032,27 @@ func main() {
 	mux.HandleFunc("/api/storage/files/", cors(storageFilesHandler))
 	mux.HandleFunc("/api/storage/download/", cors(storageDownloadHandler))
 	mux.HandleFunc("/api/storage/stats", cors(storageStatsHandler))
+
+	// Shares (auth required)
+	mux.HandleFunc("/api/shares", cors(shareLinksHandler))
+	mux.HandleFunc("/api/shares/", cors(shareLinksHandler))
+
+	// Public share view
+	mux.HandleFunc("/api/p/", cors(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// /api/p/{id}/download/{fileId}
+		if strings.Contains(path[len("/api/p/"):], "/download/") {
+			publicShareDownloadHandler(w, r)
+			return
+		}
+		// /api/p/{id}/zip
+		if strings.HasSuffix(path, "/zip") {
+			publicShareZipHandler(w, r)
+			return
+		}
+		// /api/p/{id}
+		publicShareHandler(w, r)
+	}))
 
 	mux.Handle("/", spaHandler())
 
