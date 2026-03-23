@@ -9,6 +9,7 @@ import Download from './pages/Download'
 import Auth from './pages/Auth'
 import Storage from './pages/Storage'
 import Settings from './pages/Settings'
+import ShareView from './pages/ShareView'
 
 // Layout for public pages (home, download)
 function MainLayout() {
@@ -45,6 +46,9 @@ export default function App() {
             path="/settings"
             element={<AuthGuard><Settings /></AuthGuard>}
           />
+
+          {/* Public share view — full screen, no navbar */}
+          <Route path="/p/:shareId" element={<ShareView />} />
 
           {/* Public pages with Navbar + footer */}
           <Route element={<MainLayout />}>
