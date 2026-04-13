@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"context"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -67,11 +68,14 @@ type Session struct {
 }
 
 type Directory struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	Name      string    `json:"name"`
-	ParentID  string    `json:"parentId"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	UserID     string    `json:"userId"`
+	Name       string    `json:"name"`
+	ParentID   string    `json:"parentId"`
+	CreatedAt  time.Time `json:"createdAt"`
+	IsSynced   bool      `json:"is_synced"`
+	LastSynced time.Time `json:"last_synced,omitempty"`
+	DeviceName string    `json:"device_name,omitempty"`
 }
 
 type AccountFile struct {
@@ -82,6 +86,7 @@ type AccountFile struct {
 	Size         int64     `json:"size"`
 	UploadedAt   time.Time `json:"uploadedAt"`
 	MimeType     string    `json:"mimeType"`
+	Hash         string    `json:"hash"`
 }
 
 type SharedLink struct {
@@ -93,6 +98,29 @@ type SharedLink struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 	CreatedAt time.Time `json:"createdAt"`
 	Downloads int       `json:"downloads"`
+}
+
+type SyncSession struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"userId"`
+	DirID         string    `json:"dirId"`
+	StartedAt     time.Time `json:"started_at"`
+	CompletedAt   time.Time `json:"completed_at,omitempty"`
+	Status        string    `json:"status"` // running|completed|failed
+	FilesAdded    int       `json:"files_added"`
+	FilesModified int       `json:"files_modified"`
+	FilesDeleted  int       `json:"files_deleted"`
+}
+
+type FileVersion struct {
+	ID          string    `json:"id"`
+	FileID      string    `json:"file_id"`
+	UserID      string    `json:"user_id"`
+	VersionNum  int       `json:"version_num"`
+	Size        int64     `json:"size"`
+	Hash        string    `json:"hash"`
+	CreatedAt   time.Time `json:"created_at"`
+	StoragePath string    `json:"storage_path"`
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -113,6 +141,12 @@ var (
 
 	shareMu    sync.RWMutex
 	shareLinks = make(map[string]*SharedLink)
+
+	syncMu       sync.RWMutex
+	syncSessions = make(map[string]*SyncSession)
+
+	versionMu    sync.RWMutex
+	fileVersions = make(map[string]*FileVersion) // version ID → FileVersion
 )
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -152,7 +186,7 @@ func hashPassword(password, salt string) string {
 func cors(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -930,8 +964,10 @@ func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
-			Name     string  `json:"name"`
-			ParentID *string `json:"parentId"`
+			Name       string  `json:"name"`
+			ParentID   *string `json:"parentId"`
+			IsSynced   *bool   `json:"is_synced"`
+			DeviceName string  `json:"device_name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			jsonErr(w, http.StatusBadRequest, "invalid JSON")
@@ -967,6 +1003,15 @@ func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.ParentID != nil {
 			dir.ParentID = *body.ParentID
+		}
+		if body.IsSynced != nil {
+			dir.IsSynced = *body.IsSynced
+			if *body.IsSynced {
+				dir.LastSynced = time.Now()
+			}
+		}
+		if body.DeviceName != "" {
+			dir.DeviceName = body.DeviceName
 		}
 		storageMu.Unlock()
 		jsonOK(w, dir)
@@ -1078,6 +1123,27 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 	fileID := strings.TrimPrefix(r.URL.Path, "/api/storage/files")
 	fileID = strings.TrimPrefix(fileID, "/")
 
+	// Route sub-resources: /api/storage/files/{id}/content, /versions, /restore/{n}
+	if idx := strings.Index(fileID, "/"); idx != -1 {
+		actualID := fileID[:idx]
+		sub := fileID[idx+1:]
+		switch {
+		case sub == "content" && r.Method == http.MethodPatch:
+			storageFilePatchContentHandler(w, r, user, actualID)
+			return
+		case sub == "versions" && r.Method == http.MethodGet:
+			storageFileVersionsHandler(w, r, user, actualID)
+			return
+		case strings.HasPrefix(sub, "restore/") && r.Method == http.MethodPost:
+			verStr := strings.TrimPrefix(sub, "restore/")
+			storageFileRestoreHandler(w, r, user, actualID, verStr)
+			return
+		default:
+			jsonErr(w, http.StatusNotFound, "not found")
+			return
+		}
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		dirID := r.URL.Query().Get("dir")
@@ -1116,6 +1182,7 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			originalName string
 			mimeType     string
 			size         int64
+			fileHash     string
 			haveFile     bool
 		)
 
@@ -1175,7 +1242,9 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 				}
 
 				limitReader := &io.LimitedReader{R: part, N: remaining + 1}
-				size, err = io.Copy(dst, limitReader)
+				hasher := md5.New()
+				teeReader := io.TeeReader(limitReader, hasher)
+				size, err = io.Copy(dst, teeReader)
 				dst.Close()
 				part.Close()
 				if err != nil {
@@ -1188,6 +1257,7 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 					jsonErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — you have %.1f GB remaining", float64(remaining)/(1<<30)))
 					return
 				}
+				fileHash = hex.EncodeToString(hasher.Sum(nil))
 				haveFile = true
 
 			default:
@@ -1226,6 +1296,7 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 			Size:         size,
 			UploadedAt:   time.Now(),
 			MimeType:     mimeType,
+			Hash:         fileHash,
 		}
 		storageMu.Lock()
 		accFiles[fid] = af
@@ -1304,6 +1375,315 @@ func storageFilesHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// storageFilePatchContentHandler handles PATCH /api/storage/files/{id}/content
+// It replaces the file's content while keeping the same file ID.
+func storageFilePatchContentHandler(w http.ResponseWriter, r *http.Request, user *User, fileID string) {
+	storageMu.RLock()
+	af, ok := accFiles[fileID]
+	storageMu.RUnlock()
+	if !ok || af.UserID != user.ID {
+		jsonErr(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	quota := storageQuota(user)
+	authMu.RLock()
+	used := user.StorageUsed
+	authMu.RUnlock()
+	// Allow extra space equal to the old file size since it will be freed
+	remaining := quota - used + af.Size
+	if remaining <= 0 {
+		jsonErr(w, http.StatusForbidden, "storage quota exceeded")
+		return
+	}
+
+	r.Body = io.NopCloser(io.LimitReader(r.Body, remaining+(8<<20)))
+	mr, err := r.MultipartReader()
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+
+	userDir := filepath.Join(accountsDir, user.ID)
+	tmpID := randHex(12) + ".tmp"
+	tmpPath := filepath.Join(userDir, tmpID)
+
+	var (
+		newSize     int64
+		newMime     string
+		newHash     string
+		haveFile    bool
+	)
+
+	for {
+		part, partErr := mr.NextPart()
+		if partErr == io.EOF {
+			break
+		}
+		if partErr != nil {
+			os.Remove(tmpPath)
+			jsonErr(w, http.StatusBadRequest, "failed to parse upload stream")
+			return
+		}
+		if part.FormName() == "file" {
+			if haveFile {
+				part.Close()
+				os.Remove(tmpPath)
+				jsonErr(w, http.StatusBadRequest, "only one file is allowed")
+				return
+			}
+			if part.FileName() == "" {
+				part.Close()
+				os.Remove(tmpPath)
+				jsonErr(w, http.StatusBadRequest, "no file provided")
+				return
+			}
+			newMime = part.Header.Get("Content-Type")
+			dst, createErr := os.Create(tmpPath)
+			if createErr != nil {
+				part.Close()
+				jsonErr(w, http.StatusInternalServerError, "failed to create temp file")
+				return
+			}
+			limitReader := &io.LimitedReader{R: part, N: remaining + 1}
+			hasher := md5.New()
+			newSize, err = io.Copy(dst, io.TeeReader(limitReader, hasher))
+			dst.Close()
+			part.Close()
+			if err != nil {
+				os.Remove(tmpPath)
+				jsonErr(w, http.StatusInternalServerError, "failed to write file")
+				return
+			}
+			if limitReader.N == 0 {
+				os.Remove(tmpPath)
+				jsonErr(w, http.StatusRequestEntityTooLarge, "file too large")
+				return
+			}
+			newHash = hex.EncodeToString(hasher.Sum(nil))
+			haveFile = true
+		} else {
+			io.Copy(io.Discard, io.LimitReader(part, 1<<20))
+			part.Close()
+		}
+	}
+	if !haveFile {
+		os.Remove(tmpPath)
+		jsonErr(w, http.StatusBadRequest, "no file provided")
+		return
+	}
+	if used-af.Size+newSize > quota {
+		os.Remove(tmpPath)
+		jsonErr(w, http.StatusForbidden, "storage quota exceeded")
+		return
+	}
+
+	// Save old version before overwriting
+	storageMu.RLock()
+	versionMu.RLock()
+	maxVer := 0
+	for _, v := range fileVersions {
+		if v.FileID == fileID && v.VersionNum > maxVer {
+			maxVer = v.VersionNum
+		}
+	}
+	versionMu.RUnlock()
+	storageMu.RUnlock()
+
+	oldPath := filepath.Join(accountsDir, user.ID, fileID)
+	versionsDir := filepath.Join(accountsDir, user.ID, "versions")
+	os.MkdirAll(versionsDir, 0o755)
+	newVerNum := maxVer + 1
+	verStoragePath := filepath.Join(versionsDir, fmt.Sprintf("%s_%d", fileID, newVerNum))
+
+	// Copy current file to version storage before overwriting
+	if copyErr := copyFile(oldPath, verStoragePath); copyErr == nil {
+		versionMu.Lock()
+		storageMu.RLock()
+		oldAf := accFiles[fileID]
+		storageMu.RUnlock()
+		fv := &FileVersion{
+			ID:          randHex(8),
+			FileID:      fileID,
+			UserID:      user.ID,
+			VersionNum:  newVerNum,
+			Size:        oldAf.Size,
+			Hash:        oldAf.Hash,
+			CreatedAt:   time.Now(),
+			StoragePath: verStoragePath,
+		}
+		fileVersions[fv.ID] = fv
+		versionMu.Unlock()
+	}
+
+	// Atomically replace old file with new content
+	if renameErr := os.Rename(tmpPath, oldPath); renameErr != nil {
+		os.Remove(tmpPath)
+		jsonErr(w, http.StatusInternalServerError, "failed to replace file")
+		return
+	}
+
+	// Update metadata
+	storageMu.Lock()
+	oldSize := af.Size
+	af.Size = newSize
+	af.MimeType = newMime
+	af.Hash = newHash
+	af.UploadedAt = time.Now()
+	storageMu.Unlock()
+
+	authMu.Lock()
+	user.StorageUsed = user.StorageUsed - oldSize + newSize
+	authMu.Unlock()
+
+	log.Printf("account-patch-content user=%s file=%s size=%d hash=%s", user.Username, fileID, newSize, newHash)
+	jsonOK(w, af)
+}
+
+// copyFile copies src to dst (used for version snapshots).
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// storageFileVersionsHandler handles GET /api/storage/files/{id}/versions
+func storageFileVersionsHandler(w http.ResponseWriter, r *http.Request, user *User, fileID string) {
+	storageMu.RLock()
+	af, ok := accFiles[fileID]
+	storageMu.RUnlock()
+	if !ok || af.UserID != user.ID {
+		jsonErr(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	versionMu.RLock()
+	result := make([]*FileVersion, 0)
+	for _, v := range fileVersions {
+		if v.FileID == fileID && v.UserID == user.ID {
+			result = append(result, v)
+		}
+	}
+	versionMu.RUnlock()
+
+	// Sort by version number ascending
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[i].VersionNum > result[j].VersionNum {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+	jsonOK(w, result)
+}
+
+// storageFileRestoreHandler handles POST /api/storage/files/{id}/restore/{ver}
+func storageFileRestoreHandler(w http.ResponseWriter, r *http.Request, user *User, fileID, verStr string) {
+	verNum, convErr := strconv.Atoi(verStr)
+	if convErr != nil || verNum < 1 {
+		jsonErr(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+
+	storageMu.RLock()
+	af, ok := accFiles[fileID]
+	storageMu.RUnlock()
+	if !ok || af.UserID != user.ID {
+		jsonErr(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	// Find the target version
+	versionMu.RLock()
+	var targetVer *FileVersion
+	for _, v := range fileVersions {
+		if v.FileID == fileID && v.VersionNum == verNum && v.UserID == user.ID {
+			targetVer = v
+			break
+		}
+	}
+	versionMu.RUnlock()
+
+	if targetVer == nil {
+		jsonErr(w, http.StatusNotFound, "version not found")
+		return
+	}
+
+	// Save current state as a new version before restoring
+	versionMu.RLock()
+	maxVer := 0
+	for _, v := range fileVersions {
+		if v.FileID == fileID && v.VersionNum > maxVer {
+			maxVer = v.VersionNum
+		}
+	}
+	versionMu.RUnlock()
+
+	versionsDir := filepath.Join(accountsDir, user.ID, "versions")
+	os.MkdirAll(versionsDir, 0o755)
+	newVerNum := maxVer + 1
+	curVerPath := filepath.Join(versionsDir, fmt.Sprintf("%s_%d", fileID, newVerNum))
+	curPath := filepath.Join(accountsDir, user.ID, fileID)
+
+	if copyErr := copyFile(curPath, curVerPath); copyErr == nil {
+		versionMu.Lock()
+		storageMu.RLock()
+		curAf := accFiles[fileID]
+		storageMu.RUnlock()
+		fv := &FileVersion{
+			ID:          randHex(8),
+			FileID:      fileID,
+			UserID:      user.ID,
+			VersionNum:  newVerNum,
+			Size:        curAf.Size,
+			Hash:        curAf.Hash,
+			CreatedAt:   time.Now(),
+			StoragePath: curVerPath,
+		}
+		fileVersions[fv.ID] = fv
+		versionMu.Unlock()
+	}
+
+	// Check quota: restore may change storage usage
+	quota := storageQuota(user)
+	authMu.RLock()
+	used := user.StorageUsed
+	authMu.RUnlock()
+	oldSize := af.Size
+	if used-oldSize+targetVer.Size > quota {
+		jsonErr(w, http.StatusForbidden, "storage quota exceeded")
+		return
+	}
+
+	// Copy version file back to active file path
+	if copyErr := copyFile(targetVer.StoragePath, curPath); copyErr != nil {
+		jsonErr(w, http.StatusInternalServerError, "failed to restore version")
+		return
+	}
+
+	storageMu.Lock()
+	af.Size = targetVer.Size
+	af.Hash = targetVer.Hash
+	af.UploadedAt = time.Now()
+	storageMu.Unlock()
+
+	authMu.Lock()
+	user.StorageUsed = user.StorageUsed - oldSize + targetVer.Size
+	authMu.Unlock()
+
+	log.Printf("account-restore user=%s file=%s version=%d", user.Username, fileID, verNum)
+	jsonOK(w, af)
 }
 
 func storageDownloadHandler(w http.ResponseWriter, r *http.Request) {
@@ -1751,6 +2131,127 @@ func cleanup() {
 	}
 }
 
+// ─── Sync Sessions ────────────────────────────────────────────────────────────
+
+func syncSessionsHandler(w http.ResponseWriter, r *http.Request) {
+	user := authFromRequest(r)
+	if user == nil {
+		jsonErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/sync/sessions")
+	sessionID = strings.TrimPrefix(sessionID, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		dirID := r.URL.Query().Get("dir")
+		syncMu.RLock()
+		result := make([]*SyncSession, 0)
+		for _, s := range syncSessions {
+			if s.UserID == user.ID && (dirID == "" || s.DirID == dirID) {
+				result = append(result, s)
+			}
+		}
+		syncMu.RUnlock()
+		// Sort by started_at descending (newest first)
+		for i := 0; i < len(result); i++ {
+			for j := i + 1; j < len(result); j++ {
+				if result[i].StartedAt.Before(result[j].StartedAt) {
+					result[i], result[j] = result[j], result[i]
+				}
+			}
+		}
+		jsonOK(w, result)
+
+	case http.MethodPost:
+		var body struct {
+			DirID string `json:"dir_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if body.DirID == "" {
+			jsonErr(w, http.StatusBadRequest, "dir_id required")
+			return
+		}
+		storageMu.RLock()
+		d, ok := dirs[body.DirID]
+		storageMu.RUnlock()
+		if !ok || d.UserID != user.ID {
+			jsonErr(w, http.StatusBadRequest, "folder not found")
+			return
+		}
+		ss := &SyncSession{
+			ID:        randHex(8),
+			UserID:    user.ID,
+			DirID:     body.DirID,
+			StartedAt: time.Now(),
+			Status:    "running",
+		}
+		syncMu.Lock()
+		syncSessions[ss.ID] = ss
+		syncMu.Unlock()
+		log.Printf("sync-session-start user=%s dir=%s session=%s", user.Username, body.DirID, ss.ID)
+		jsonOK(w, ss)
+
+	case http.MethodPut:
+		if sessionID == "" {
+			jsonErr(w, http.StatusBadRequest, "missing session id")
+			return
+		}
+		var body struct {
+			Status        string `json:"status"`
+			FilesAdded    *int   `json:"files_added"`
+			FilesModified *int   `json:"files_modified"`
+			FilesDeleted  *int   `json:"files_deleted"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		syncMu.Lock()
+		ss, ok := syncSessions[sessionID]
+		if !ok || ss.UserID != user.ID {
+			syncMu.Unlock()
+			jsonErr(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if body.Status == "completed" || body.Status == "failed" {
+			ss.Status = body.Status
+			ss.CompletedAt = time.Now()
+
+			// Mark the directory as synced when session completes successfully
+			if body.Status == "completed" {
+				storageMu.Lock()
+				if d, dOk := dirs[ss.DirID]; dOk && d.UserID == user.ID {
+					d.IsSynced = true
+					d.LastSynced = ss.CompletedAt
+				}
+				storageMu.Unlock()
+			}
+		} else if body.Status != "" {
+			ss.Status = body.Status
+		}
+		if body.FilesAdded != nil {
+			ss.FilesAdded = *body.FilesAdded
+		}
+		if body.FilesModified != nil {
+			ss.FilesModified = *body.FilesModified
+		}
+		if body.FilesDeleted != nil {
+			ss.FilesDeleted = *body.FilesDeleted
+		}
+		syncMu.Unlock()
+		log.Printf("sync-session-update user=%s session=%s status=%s", user.Username, sessionID, ss.Status)
+		jsonOK(w, ss)
+
+	default:
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
 // persistFileRecord mirrors FileRecord but exports the private password field
@@ -1782,12 +2283,14 @@ type persistUser struct {
 }
 
 type persistData struct {
-	Records    []*persistFileRecord `json:"records"`
-	Users      []*persistUser       `json:"users"`
-	Sessions   []*Session           `json:"sessions"`
-	Dirs       []*Directory         `json:"dirs"`
-	AccFiles   []*AccountFile       `json:"accFiles"`
-	ShareLinks []*SharedLink        `json:"shareLinks"`
+	Records      []*persistFileRecord `json:"records"`
+	Users        []*persistUser       `json:"users"`
+	Sessions     []*Session           `json:"sessions"`
+	Dirs         []*Directory         `json:"dirs"`
+	AccFiles     []*AccountFile       `json:"accFiles"`
+	ShareLinks   []*SharedLink        `json:"shareLinks"`
+	SyncSessions []*SyncSession       `json:"syncSessions"`
+	FileVersions []*FileVersion       `json:"fileVersions"`
 }
 
 // saveState serialises all in-memory state to dataFile atomically.
@@ -1852,13 +2355,29 @@ func saveState() error {
 	}
 	shareMu.RUnlock()
 
+	syncMu.RLock()
+	pSyncSessions := make([]*SyncSession, 0, len(syncSessions))
+	for _, ss := range syncSessions {
+		pSyncSessions = append(pSyncSessions, ss)
+	}
+	syncMu.RUnlock()
+
+	versionMu.RLock()
+	pFileVersions := make([]*FileVersion, 0, len(fileVersions))
+	for _, fv := range fileVersions {
+		pFileVersions = append(pFileVersions, fv)
+	}
+	versionMu.RUnlock()
+
 	b, err := json.Marshal(&persistData{
-		Records:    pRecords,
-		Users:      pUsers,
-		Sessions:   pSessions,
-		Dirs:       pDirs,
-		AccFiles:   pAccFiles,
-		ShareLinks: pShareLinks,
+		Records:      pRecords,
+		Users:        pUsers,
+		Sessions:     pSessions,
+		Dirs:         pDirs,
+		AccFiles:     pAccFiles,
+		ShareLinks:   pShareLinks,
+		SyncSessions: pSyncSessions,
+		FileVersions: pFileVersions,
 	})
 	if err != nil {
 		return err
@@ -1952,8 +2471,20 @@ func loadState() error {
 	}
 	shareMu.Unlock()
 
-	log.Printf("state loaded: %d file records, %d users, %d sessions, %d dirs, %d account files, %d shares",
-		len(data.Records), len(data.Users), len(data.Sessions), len(data.Dirs), len(data.AccFiles), len(shareLinks))
+	syncMu.Lock()
+	for _, ss := range data.SyncSessions {
+		syncSessions[ss.ID] = ss
+	}
+	syncMu.Unlock()
+
+	versionMu.Lock()
+	for _, fv := range data.FileVersions {
+		fileVersions[fv.ID] = fv
+	}
+	versionMu.Unlock()
+
+	log.Printf("state loaded: %d file records, %d users, %d sessions, %d dirs, %d account files, %d shares, %d sync sessions, %d file versions",
+		len(data.Records), len(data.Users), len(data.Sessions), len(data.Dirs), len(data.AccFiles), len(shareLinks), len(syncSessions), len(fileVersions))
 	return nil
 }
 
@@ -2032,6 +2563,10 @@ func main() {
 	mux.HandleFunc("/api/storage/files/", cors(storageFilesHandler))
 	mux.HandleFunc("/api/storage/download/", cors(storageDownloadHandler))
 	mux.HandleFunc("/api/storage/stats", cors(storageStatsHandler))
+
+	// Sync sessions
+	mux.HandleFunc("/api/sync/sessions", cors(syncSessionsHandler))
+	mux.HandleFunc("/api/sync/sessions/", cors(syncSessionsHandler))
 
 	// Shares (auth required)
 	mux.HandleFunc("/api/shares", cors(shareLinksHandler))
