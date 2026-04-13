@@ -4245,3 +4245,235 @@ input:-webkit-autofill:active {
   transition: color 0.15s;
 }
 .share-footer-link:hover { color: var(--green); }
+
+/* ══════════════════════════════════════════════════════════════
+   FILE SELECTION — circle checkbox + selection bar
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Icon wrapper (positions the circle over the emoji) ─────── */
+.storage-card-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.storage-grid.list-view .storage-card-icon-wrap {
+  width: 26px;
+  height: 26px;
+}
+.storage-grid.grid-view .storage-card-icon-wrap {
+  width: 44px;
+  height: 44px;
+}
+
+/* ── Circular select button ──────────────────────────────────── */
+.card-select-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.5);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(5, 15, 13, 0.82);
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  border: 1.5px solid rgba(0, 217, 126, 0.6);
+  box-shadow: inset 0 1px 0 rgba(0, 217, 126, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.22s ease;
+  z-index: 3;
+}
+/* Appear on card hover */
+.storage-card:hover .card-select-btn {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+/* Stay visible + go green when selected */
+.card-selected .card-select-btn {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow:
+    0 0 0 3px rgba(0, 217, 126, 0.22),
+    0 0 14px rgba(0, 217, 126, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.storage-grid.grid-view .card-select-btn {
+  width: 26px;
+  height: 26px;
+}
+
+/* ── Checkmark inside the circle ─────────────────────────────── */
+.card-select-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.2) rotate(-20deg);
+  transition:
+    opacity 0.18s ease,
+    transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.card-selected .card-select-check {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+/* ── Selected card visual state ──────────────────────────────── */
+.card-selected {
+  border-color: rgba(0, 217, 126, 0.48) !important;
+  background: rgba(0, 217, 126, 0.055) !important;
+  box-shadow:
+    0 0 0 1px rgba(0, 217, 126, 0.18),
+    inset 0 0 28px rgba(0, 217, 126, 0.04) !important;
+}
+
+/* ── Touch: always show circles at reduced opacity ───────────── */
+@media (hover: none) {
+  .card-select-btn {
+    opacity: 0.55;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SELECTION BAR (liquid-glass toolbar)
+   ══════════════════════════════════════════════════════════════ */
+
+@keyframes selection-bar-in {
+  from { opacity: 0; transform: translateY(-16px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)      scale(1); }
+}
+@keyframes selection-bar-out {
+  from { opacity: 1; transform: translateY(0)      scale(1); }
+  to   { opacity: 0; transform: translateY(-10px)  scale(0.97); }
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.85rem;
+  background: rgba(8, 21, 18, 0.9);
+  backdrop-filter: blur(22px) saturate(1.7);
+  -webkit-backdrop-filter: blur(22px) saturate(1.7);
+  border: 1px solid rgba(0, 217, 126, 0.3);
+  border-radius: 12px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(0, 217, 126, 0.07),
+    inset 0 1px 0 rgba(0, 217, 126, 0.09),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  margin-bottom: 0.65rem;
+  animation: selection-bar-in 0.38s cubic-bezier(0.34, 1.2, 0.64, 1) both;
+}
+
+/* Count indicator */
+.selection-count {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--green);
+  white-space: nowrap;
+}
+.selection-count-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(0, 217, 126, 0.7);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.selection-bar-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(0, 217, 126, 0.18);
+  flex-shrink: 0;
+  margin: 0 0.1rem;
+}
+
+/* Selection bar action buttons */
+.sel-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.sel-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: rgba(0, 217, 126, 0.09);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 10px rgba(0, 217, 126, 0.18);
+}
+.sel-btn:active { transform: translateY(0); }
+.sel-btn svg { transition: transform 0.18s; }
+.sel-btn:hover svg { transform: scale(1.12); }
+
+.sel-btn-danger {
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #f87171;
+}
+.sel-btn-danger:hover {
+  border-color: rgba(248, 113, 113, 0.65);
+  background: rgba(248, 113, 113, 0.1);
+  color: #ff6b6b;
+  box-shadow: 0 2px 10px rgba(248, 113, 113, 0.2);
+}
+.sel-btn-close {
+  border-color: transparent;
+  padding: 0.3rem 0.42rem;
+}
+.sel-btn-close:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  box-shadow: none;
+  transform: rotate(90deg) scale(1.1);
+}
+
+/* Confirm delete state */
+.sel-btn-danger-confirm {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #ff6b6b;
+  animation: shake-subtle 0.35s ease both;
+}
+@keyframes shake-subtle {
+  0%,100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}

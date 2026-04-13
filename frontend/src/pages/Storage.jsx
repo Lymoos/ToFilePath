@@ -125,12 +125,13 @@ function PencilIcon() {
 }
 
 function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, onShare, tr,
-                       dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop }) {
+                       dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+                       selected, onSelect }) {
   const [confirm, setConfirm] = useState(false)
   const isDropTarget = dropTarget === dir.id
   return (
     <div
-      className={`storage-card folder-card${isDropTarget ? ' drop-target' : ''}${dragging ? ' dragging' : ''}`}
+      className={`storage-card folder-card${isDropTarget ? ' drop-target' : ''}${dragging ? ' dragging' : ''}${selected ? ' card-selected' : ''}`}
       draggable
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
       onDragEnd={onDragEnd}
@@ -138,8 +139,22 @@ function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, onShare, t
       onDragLeave={onDragLeave}
       onDrop={e => { e.preventDefault(); onDrop() }}
     >
-      <button className="storage-card-main" onClick={onOpen}>
+      <div className="storage-card-icon-wrap">
         <div className="storage-card-icon folder-icon">{isDropTarget ? '📂' : '📁'}</div>
+        <button
+          className="card-select-btn"
+          onClick={e => { e.stopPropagation(); onSelect && onSelect() }}
+          aria-label={selected ? 'Deselect' : 'Select'}
+          type="button"
+        >
+          <span className="card-select-check">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+              <polyline points="1.5,6.5 4.5,9.5 10.5,2.5" stroke="#021208" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </span>
+        </button>
+      </div>
+      <button className="storage-card-main" onClick={onOpen}>
         <div className="storage-card-info">
           <div className="storage-card-name">{dir.name}</div>
           <div className="storage-card-meta">{tr('storage.folder')} · {timeAgo(dir.createdAt, tr)}</div>
@@ -187,7 +202,7 @@ function FolderCard({ dir, onOpen, onDelete, onDownloadZip, onRename, onShare, t
 }
 
 function FileCard({ file, token, onDelete, onPreview, onRename, onShare, tr,
-                    dragging, onDragStart, onDragEnd }) {
+                    dragging, onDragStart, onDragEnd, selected, onSelect }) {
   const [confirm, setConfirm] = useState(false)
   const previewable = canPreview(file.name)
 
@@ -208,14 +223,28 @@ function FileCard({ file, token, onDelete, onPreview, onRename, onShare, tr,
 
   return (
     <div
-      className={`storage-card file-card${dragging ? ' dragging' : ''}`}
+      className={`storage-card file-card${dragging ? ' dragging' : ''}${selected ? ' card-selected' : ''}`}
       draggable
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
       onDragEnd={onDragEnd}
     >
       <div className="storage-card-main" style={{ cursor: previewable ? 'pointer' : 'default' }}
            onClick={previewable ? onPreview : undefined}>
-        <div className="storage-card-icon">{fileEmoji(file.name)}</div>
+        <div className="storage-card-icon-wrap">
+          <div className="storage-card-icon">{fileEmoji(file.name)}</div>
+          <button
+            className="card-select-btn"
+            onClick={e => { e.stopPropagation(); onSelect && onSelect() }}
+            aria-label={selected ? 'Deselect' : 'Select'}
+            type="button"
+          >
+            <span className="card-select-check">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                <polyline points="1.5,6.5 4.5,9.5 10.5,2.5" stroke="#021208" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+          </button>
+        </div>
         <div className="storage-card-info">
           <div className="storage-card-name" title={file.name}>{file.name}</div>
           <div className="storage-card-meta">
@@ -664,6 +693,77 @@ function ShareModal({ initialFiles, initialDirs, allFiles, allDirs, token, onClo
   )
 }
 
+// ── SelectionBar ──────────────────────────────────────────────────────────────
+
+function SelectionBar({ count, total, onSelectAll, onDelete, onClear }) {
+  const [confirmDel, setConfirmDel] = useState(false)
+
+  return (
+    <div className="selection-bar">
+      {/* Count */}
+      <div className="selection-count">
+        <span className="selection-count-dot" />
+        <span><strong>{count}</strong> {count === 1 ? 'item' : 'items'} selected</span>
+      </div>
+
+      <div className="selection-bar-sep" />
+
+      {/* Select all */}
+      {count < total && (
+        <button className="sel-btn" onClick={onSelectAll} title="Select all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <polyline points="9 11 12 14 22 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span>Select all</span>
+        </button>
+      )}
+
+      <div style={{ flex: 1 }} />
+
+      {/* Delete */}
+      {confirmDel ? (
+        <>
+          <button
+            className="sel-btn sel-btn-danger sel-btn-danger-confirm"
+            onClick={() => { onDelete(); setConfirmDel(false) }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M9 6V4h6v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Delete {count}
+          </button>
+          <button className="sel-btn" onClick={() => setConfirmDel(false)}>Cancel</button>
+        </>
+      ) : (
+        <button
+          className="sel-btn sel-btn-danger"
+          onClick={() => setConfirmDel(true)}
+          title="Delete selected"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M9 6V4h6v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
+
+      {/* Deselect / close */}
+      <button className="sel-btn sel-btn-close" onClick={onClear} title="Deselect all">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+          <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+          <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 // ── FAB Component ─────────────────────────────────────────────────────────────
 
 function FAB({ onUploadFiles, onUploadFolder, onNewFolder, tr }) {
@@ -771,6 +871,34 @@ export default function Storage() {
   // ── Share ─────────────────────────────────────────────────────
   const [shareModal, setShareModal] = useState(null) // { initialFiles: [], initialDirs: [] }
 
+  // ── Multi-select ──────────────────────────────────────────────
+  const [selectedItems, setSelectedItems] = useState(new Set()) // "file:id" | "dir:id"
+
+  const toggleSelect = (type, id) => {
+    const key = `${type}:${id}`
+    setSelectedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const clearSelection = () => setSelectedItems(new Set())
+
+  const handleBulkDelete = async () => {
+    const fileIds = [...selectedItems].filter(k => k.startsWith('file:')).map(k => k.slice(5))
+    const dirIds  = [...selectedItems].filter(k => k.startsWith('dir:')).map(k => k.slice(4))
+    await Promise.all([
+      ...fileIds.map(id => http.del(`/api/storage/files/${id}`)),
+      ...dirIds.map(id  => http.del(`/api/storage/dirs/${id}`)),
+    ])
+    setFiles(prev => prev.filter(f => !fileIds.includes(f.id)))
+    setAllDirs(prev => prev.filter(d => !dirIds.includes(d.id)))
+    setSelectedItems(new Set())
+    const statsRes = await http.get('/api/storage/stats')
+    if (statsRes.ok) setStats(await statsRes.json())
+  }
+
   const fileInputRef = useRef(null)
   const folderInputRef = useRef(null)
   const dragHandleRef = useRef(null)
@@ -828,7 +956,7 @@ export default function Storage() {
     }
   }, [loadingContent, pendingFile, location.state])
 
-  const navigate2Dir = (id) => { setCurrentDir(id); setFiles([]); setSearchQuery('') }
+  const navigate2Dir = (id) => { setCurrentDir(id); setFiles([]); setSearchQuery(''); setSelectedItems(new Set()) }
 
   // ── Actions ───────────────────────────────────────────────────
   const handleDeleteDir = async (dirId) => {
@@ -1298,6 +1426,19 @@ export default function Storage() {
             </div>
           )}
 
+          {selectedItems.size > 0 && (
+            <SelectionBar
+              count={selectedItems.size}
+              total={currentSubDirs.length + filteredFiles.length}
+              onSelectAll={() => setSelectedItems(new Set([
+                ...currentSubDirs.map(d => `dir:${d.id}`),
+                ...filteredFiles.map(f => `file:${f.id}`),
+              ]))}
+              onDelete={handleBulkDelete}
+              onClear={clearSelection}
+            />
+          )}
+
           {loadingContent ? (
             <div className="storage-loading">
               <span className="spinner" style={{ width:32, height:32, borderWidth:3 }} />
@@ -1333,6 +1474,8 @@ export default function Storage() {
                   onDragOver={() => { if (draggingItem?.id !== dir.id) setDropTargetDir(dir.id) }}
                   onDragLeave={() => setDropTargetDir(null)}
                   onDrop={() => handleDropOnDir(dir.id)}
+                  selected={selectedItems.has(`dir:${dir.id}`)}
+                  onSelect={() => toggleSelect('dir', dir.id)}
                 />
               ))}
               {filteredFiles.map((file, i) => (
@@ -1344,6 +1487,8 @@ export default function Storage() {
                   dragging={draggingItem?.id === file.id}
                   onDragStart={() => setDraggingItem({ type: 'file', id: file.id, name: file.name })}
                   onDragEnd={() => { setDraggingItem(null); setDropTargetDir(null) }}
+                  selected={selectedItems.has(`file:${file.id}`)}
+                  onSelect={() => toggleSelect('file', file.id)}
                 />
               ))}
             </div>
