@@ -81,6 +81,8 @@ export default function Settings() {
   const [adminData, setAdminData] = useState(null)
   const [anonFiles, setAnonFiles] = useState(null)
   const [deletingCode, setDeletingCode] = useState(null)
+  const [clearingUserId, setClearingUserId] = useState(null)   // userId being cleared
+  const [clearConfirmId, setClearConfirmId] = useState(null)   // userId awaiting confirm
 
   // Account fields
   const [newEmail, setNewEmail]         = useState('')
@@ -127,6 +129,22 @@ export default function Settings() {
     setAnonFiles(prev => prev ? prev.filter(f => f.shortCode !== code) : prev)
     setAdminData(prev => prev ? { ...prev, anonFiles: (prev.anonFiles || 1) - 1 } : prev)
     setDeletingCode(null)
+  }
+
+  const clearUserStorage = async (userId) => {
+    setClearingUserId(userId)
+    setClearConfirmId(null)
+    await fetch(`/api/admin/users/${userId}/storage`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    // Reset storageUsed to 0 in local admin data
+    setAdminData(prev => prev ? {
+      ...prev,
+      users: prev.users.map(u => u.id === userId ? { ...u, storageUsed: 0 } : u),
+      totalStorage: prev.users.reduce((sum, u) => sum + (u.id === userId ? 0 : u.storageUsed), 0),
+    } : prev)
+    setClearingUserId(null)
   }
 
   // Apply compact / no-anim globally
@@ -460,6 +478,50 @@ export default function Settings() {
                           <span className="admin-user-date">
                             {new Date(u.createdAt).toLocaleDateString()}
                           </span>
+                          {/* Clear storage button */}
+                          {clearConfirmId === u.id ? (
+                            <div className="admin-clear-confirm">
+                              <button
+                                className="admin-clear-btn admin-clear-btn-confirm"
+                                onClick={() => clearUserStorage(u.id)}
+                                disabled={clearingUserId === u.id}
+                              >
+                                {clearingUserId === u.id
+                                  ? <span className="spinner" style={{ width: 11, height: 11, borderWidth: 2 }} />
+                                  : <>
+                                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                                        <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                        <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                        <path d="M9 6V4h6v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                      </svg>
+                                      Sure?
+                                    </>
+                                }
+                              </button>
+                              <button
+                                className="admin-clear-btn admin-clear-btn-cancel"
+                                onClick={() => setClearConfirmId(null)}
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              className="admin-clear-btn"
+                              onClick={() => setClearConfirmId(u.id)}
+                              disabled={clearingUserId === u.id || u.storageUsed === 0}
+                              title={u.storageUsed === 0 ? 'Storage is already empty' : 'Clear all storage'}
+                            >
+                              {clearingUserId === u.id
+                                ? <span className="spinner" style={{ width: 11, height: 11, borderWidth: 2 }} />
+                                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                                    <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                    <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                    <path d="M9 6V4h6v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                              }
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>

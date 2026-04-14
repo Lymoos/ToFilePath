@@ -873,6 +873,63 @@ func adminFilesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DELETE /api/admin/users/{id}/storage — wipe all files & dirs for a user
+func adminClearStorageHandler(w http.ResponseWriter, r *http.Request) {
+	admin := authFromRequest(r)
+	if admin == nil || !admin.IsAdmin {
+		jsonErr(w, http.StatusForbidden, "admin access required")
+		return
+	}
+	if r.Method != http.MethodDelete {
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	targetID := strings.TrimPrefix(r.URL.Path, "/api/admin/users/")
+	targetID = strings.TrimSuffix(targetID, "/storage")
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		jsonErr(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	authMu.RLock()
+	target, ok := users[targetID]
+	authMu.RUnlock()
+	if !ok {
+		jsonErr(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	// Delete all files and dirs belonging to this user
+	storageMu.Lock()
+	for id, f := range accFiles {
+		if f.UserID == targetID {
+			os.Remove(filepath.Join(accountsDir, targetID, id))
+			delete(accFiles, id)
+		}
+	}
+	for id, d := range dirs {
+		if d.UserID == targetID {
+			delete(dirs, id)
+		}
+	}
+	storageMu.Unlock()
+
+	// Remove and recreate the user's directory (clean slate)
+	os.RemoveAll(filepath.Join(accountsDir, targetID))
+	os.MkdirAll(filepath.Join(accountsDir, targetID), 0o755)
+
+	// Reset storage counter
+	authMu.Lock()
+	target.StorageUsed = 0
+	users[targetID] = target
+	authMu.Unlock()
+
+	saveState()
+	jsonOK(w, map[string]string{"status": "cleared", "userId": targetID})
+}
+
 // ─── Storage: Directories ─────────────────────────────────────────────────────
 
 func storageDirsHandler(w http.ResponseWriter, r *http.Request) {
@@ -2555,6 +2612,7 @@ func main() {
 	mux.HandleFunc("/api/admin/stats", cors(adminStatsHandler))
 	mux.HandleFunc("/api/admin/files", cors(adminFilesHandler))
 	mux.HandleFunc("/api/admin/files/", cors(adminFilesHandler))
+	mux.HandleFunc("/api/admin/users/", cors(adminClearStorageHandler))
 
 	// Storage
 	mux.HandleFunc("/api/storage/dirs", cors(storageDirsHandler))
