@@ -2533,6 +2533,64 @@ input:-webkit-autofill:active {
   transition: background 0.12s;
 }
 .admin-user-row:hover { background: var(--card); }
+
+/* Clear-storage button inside each user row */
+.admin-clear-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.28rem 0.52rem;
+  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 7px;
+  color: #f87171;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s, color 0.16s, transform 0.16s, box-shadow 0.16s;
+}
+.admin-clear-btn:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.6);
+  color: #ff6b6b;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(248, 113, 113, 0.18);
+}
+.admin-clear-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.admin-clear-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  animation: shake-subtle 0.32s ease both;
+}
+.admin-clear-btn-confirm {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.55);
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+.admin-clear-btn-confirm:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.22);
+  border-color: var(--red);
+  box-shadow: 0 2px 10px rgba(248, 113, 113, 0.3);
+}
+.admin-clear-btn-cancel {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  padding: 0.28rem 0.42rem;
+  font-size: 0.65rem;
+}
+.admin-clear-btn-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text);
+  transform: rotate(90deg) scale(1.1);
+  box-shadow: none;
+}
 .admin-user-avatar {
   width: 28px;
   height: 28px;
